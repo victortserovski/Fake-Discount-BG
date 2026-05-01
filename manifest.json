@@ -1,0 +1,77 @@
+{
+  "manifest_version": 3,
+  "name": "Fake Discount BG",
+  "version": "3.6.16",
+  "description": "Detects fake discounts on Emag.bg and Ozone.bg by tracking price history",
+  "permissions": [
+    "storage",
+    "activeTab",
+    "tabs"
+  ],
+  "host_permissions": [
+    "https://www.emag.bg/*",
+    "https://www.ozone.bg/*"
+  ],
+  "background": {
+    "service_worker": "background/service-worker.js"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://www.emag.bg/*"
+      ],
+      "js": [
+        "i18n/i18n.js",
+        "ui/advanced-chart.js",
+        "ui/price-graph-widget.js",
+        "content/product-parser.js",
+        "content/content-base.js",
+        "content/emag.js"
+      ],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": [
+        "https://www.ozone.bg/*"
+      ],
+      "js": [
+        "i18n/i18n.js",
+        "ui/advanced-chart.js",
+        "ui/price-graph-widget.js",
+        "content/product-parser.js",
+        "content/content-base.js",
+        "content/ozone.js"
+      ],
+      "run_at": "document_idle"
+    }
+  ],
+  "action": {
+    "default_popup": "popup/popup.html",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "32": "icons/icon32.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
+    }
+  },
+  "icons": {
+    "16": "icons/icon16.png",
+    "32": "icons/icon32.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
+  "web_accessible_resources": [
+    {
+      "resources": [
+        "ui/*.html",
+        "ui/*.css",
+        "i18n/*.json",
+        "icons/*.png"
+      ],
+      "matches": [
+        "https://www.emag.bg/*",
+        "https://www.ozone.bg/*"
+      ]
+    }
+  ]
+}

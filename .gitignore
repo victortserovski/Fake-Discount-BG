@@ -1,0 +1,25 @@
+# Editor / IDE
+.claude/
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS junk
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Node (in case anyone runs tooling locally)
+node_modules/
+npm-debug.log
+yarn-error.log
+
+# Build artifacts / packaging
+*.zip
+FakeDiscountBG.zip
+
+# Local-only reference material — not part of the extension
+test/
+Emag.bg html.txt
+Ozone.bg html.txt

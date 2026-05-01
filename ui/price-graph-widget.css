@@ -1,0 +1,549 @@
+/* Modern Glassmorphism Price Graph Widget Styles */
+
+/* CSS Variables */
+:root {
+  --widget-primary: #3B82F6;
+  --widget-primary-dark: #1D4ED8;
+  --widget-success: #10B981;
+  --widget-success-dark: #059669;
+  --widget-warning: #F59E0B;
+  --widget-warning-dark: #D97706;
+  --widget-danger: #EF4444;
+  --widget-danger-dark: #DC2626;
+  --widget-glass-bg: rgba(255, 255, 255, 0.9);
+  --widget-glass-border: rgba(255, 255, 255, 0.5);
+  --widget-blur: 20px;
+  --widget-text-primary: #1F2937;
+  --widget-text-secondary: #6B7280;
+  --widget-radius: 16px;
+}
+
+/* Main Widget Container */
+#fake-discount-widget {
+  border: 1px solid var(--widget-glass-border);
+  border-radius: var(--widget-radius);
+  padding: 0;
+  background: var(--widget-glass-bg);
+  backdrop-filter: blur(var(--widget-blur));
+  -webkit-backdrop-filter: blur(var(--widget-blur));
+  margin: 24px auto;
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  box-shadow: 0 8px 32px rgba(31, 38, 135, 0.12);
+  overflow: hidden;
+  position: relative;
+  /* Ensure full width display */
+  width: 100% !important;
+  max-width: 1200px !important;
+  min-width: 300px;
+  box-sizing: border-box;
+  clear: both;
+  float: none !important;
+  display: block !important;
+}
+
+/* Verdict Banner */
+.fake-discount-verdict-banner {
+  /* Right padding reserves space for the absolutely-positioned site badge so
+     the centered verdict text never overlaps it, regardless of length. */
+  padding: 18px 130px 18px 24px;
+  font-weight: 700;
+  font-size: 17px;
+  text-align: center;
+  letter-spacing: 0.3px;
+  position: relative;
+  text-transform: uppercase;
+  backdrop-filter: blur(10px);
+}
+
+.fake-discount-verdict-banner.fake {
+  background: linear-gradient(135deg, var(--widget-danger) 0%, var(--widget-danger-dark) 100%);
+  color: #ffffff;
+  box-shadow: inset 0 -2px 10px rgba(0, 0, 0, 0.1);
+}
+
+.fake-discount-verdict-banner.real {
+  background: linear-gradient(135deg, var(--widget-success) 0%, var(--widget-success-dark) 100%);
+  color: #ffffff;
+  box-shadow: inset 0 -2px 10px rgba(0, 0, 0, 0.1);
+}
+
+.fake-discount-verdict-banner.stable {
+  background: linear-gradient(135deg, var(--widget-warning) 0%, var(--widget-warning-dark) 100%);
+  color: #ffffff;
+  box-shadow: inset 0 -2px 10px rgba(0, 0, 0, 0.1);
+}
+
+.fake-discount-verdict-banner.neutral {
+  background: linear-gradient(135deg, #6B7280 0%, #4B5563 100%);
+  color: #ffffff;
+  box-shadow: inset 0 -2px 10px rgba(0, 0, 0, 0.1);
+}
+
+/* Shimmer effect on verdict */
+.fake-discount-verdict-banner::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: -100%;
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    rgba(255, 255, 255, 0.2),
+    transparent
+  );
+  animation: verdictShimmer 3s infinite;
+}
+
+@keyframes verdictShimmer {
+  0% { left: -100%; }
+  50%, 100% { left: 100%; }
+}
+
+/* Site Indicator Badge - Full site name with accent colors */
+.fake-discount-site-indicator {
+  position: absolute;
+  top: 50%;
+  right: 20px;
+  transform: translateY(-50%);
+  padding: 6px 14px;
+  border-radius: 20px;
+  backdrop-filter: blur(8px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 700;
+  font-size: 11px;
+  border: 2px solid;
+  letter-spacing: 0.3px;
+  white-space: nowrap;
+}
+
+/* Ozone.bg - Orange accent */
+.fake-discount-site-indicator.ozone {
+  background: linear-gradient(135deg, #FF6600 0%, #FF8533 100%);
+  color: #ffffff;
+  border-color: rgba(255, 255, 255, 0.4);
+  box-shadow: 0 2px 8px rgba(255, 102, 0, 0.4);
+}
+
+/* eMAG.bg - Blue accent */
+.fake-discount-site-indicator.emag {
+  background: linear-gradient(135deg, #2962FF 0%, #448AFF 100%);
+  color: #ffffff;
+  border-color: rgba(255, 255, 255, 0.4);
+  box-shadow: 0 2px 8px rgba(41, 98, 255, 0.4);
+}
+
+/* Stats Grid */
+.fake-discount-stats-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 1px;
+  background: rgba(0, 0, 0, 0.06);
+  margin: 0;
+  padding: 0;
+}
+
+/* Two column variant */
+.fake-discount-stats-grid.two-cols {
+  grid-template-columns: repeat(2, 1fr);
+}
+
+.fake-discount-stat-item {
+  padding: 20px 16px;
+  background: rgba(255, 255, 255, 0.8);
+  text-align: center;
+  transition: background 0.2s ease;
+}
+
+.fake-discount-stat-item:hover {
+  background: rgba(255, 255, 255, 0.95);
+}
+
+.fake-discount-stat-label {
+  font-size: 11px;
+  color: var(--widget-text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.8px;
+  margin-bottom: 10px;
+  font-weight: 600;
+}
+
+.fake-discount-stat-value {
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--widget-text-primary);
+  line-height: 1;
+}
+
+.fake-discount-stat-value.low {
+  color: var(--widget-success);
+}
+
+.fake-discount-stat-value.high {
+  color: var(--widget-danger);
+}
+
+.fake-discount-stat-value.avg {
+  color: var(--widget-primary);
+}
+
+/* Chart Container */
+.fake-discount-chart-container {
+  margin: 0;
+  padding: 24px;
+  background: linear-gradient(180deg, rgba(249, 250, 251, 0.8) 0%, rgba(243, 244, 246, 0.9) 100%);
+  border-top: 1px solid rgba(0, 0, 0, 0.05);
+}
+
+.fake-discount-chart {
+  width: 100%;
+  height: 280px;
+  position: relative;
+  border-radius: 12px;
+  overflow: hidden;
+  background: rgba(255, 255, 255, 0.6);
+  backdrop-filter: blur(10px);
+  border: 1px solid rgba(255, 255, 255, 0.5);
+}
+
+/* Chart SVG Styling */
+.fake-discount-chart svg {
+  display: block;
+}
+
+/* Empty State */
+.fake-discount-empty-state {
+  padding: 50px 24px;
+  text-align: center;
+  color: var(--widget-text-secondary);
+  font-size: 15px;
+  line-height: 1.7;
+  background: rgba(249, 250, 251, 0.6);
+}
+
+.fake-discount-empty-state::before {
+  content: '';
+  display: block;
+  width: 60px;
+  height: 60px;
+  margin: 0 auto 16px;
+  background: rgba(107, 114, 128, 0.1);
+  border-radius: 50%;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24' fill='none' stroke='%236B7280' stroke-width='2'%3E%3Cpath d='M3 3v18h18'/%3E%3Cpath d='m19 9-5 5-4-4-3 3'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: center;
+  background-size: 28px;
+}
+
+/* Enhanced Bottom Info Bar */
+.fake-discount-info-bar {
+  margin: 0;
+  padding: 12px 20px;
+  border-top: 1px solid rgba(0, 0, 0, 0.08);
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-start;
+  align-items: center;
+  gap: 16px;
+  font-size: 12px;
+  background: linear-gradient(180deg, rgba(248, 250, 252, 0.95) 0%, rgba(241, 245, 249, 0.98) 100%);
+  backdrop-filter: blur(10px);
+}
+
+.fake-discount-info-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  background: rgba(255, 255, 255, 0.7);
+  border-radius: 6px;
+  border: 1px solid rgba(0, 0, 0, 0.06);
+  transition: all 0.2s ease;
+}
+
+.fake-discount-info-item:hover {
+  background: rgba(255, 255, 255, 0.95);
+  border-color: rgba(0, 0, 0, 0.1);
+}
+
+.fake-discount-info-item.storage-item {
+  margin-left: auto;
+  background: rgba(100, 116, 139, 0.1);
+}
+
+.fake-discount-info-icon {
+  font-size: 14px;
+  line-height: 1;
+}
+
+.fake-discount-info-text {
+  color: var(--widget-text-secondary);
+  font-weight: 500;
+  font-size: 11px;
+}
+
+.fake-discount-info-text.text-success {
+  color: var(--widget-success);
+  font-weight: 600;
+}
+
+.fake-discount-info-text.text-danger {
+  color: var(--widget-danger);
+  font-weight: 600;
+}
+
+.fake-discount-info-text.text-warning {
+  color: var(--widget-warning);
+  font-weight: 600;
+}
+
+/* Verdict Content (title + reason) */
+.fake-discount-verdict-content {
+  position: relative;
+  z-index: 1;
+}
+
+.fake-discount-verdict-title {
+  font-size: inherit;
+  font-weight: inherit;
+  letter-spacing: inherit;
+  text-transform: inherit;
+}
+
+.fake-discount-verdict-reason {
+  font-size: 12px;
+  font-weight: 500;
+  opacity: 0.9;
+  margin-top: 4px;
+  text-transform: none;
+  letter-spacing: 0;
+}
+
+/* Price Target in bottom bar — flows naturally next to the change item.
+   No margin-left:auto so items pack from the left without leaving a gap. */
+.fake-discount-target-item {
+  gap: 6px;
+}
+
+.fake-discount-target-input {
+  width: 110px;
+  padding: 4px 8px;
+  border: 1px solid rgba(0, 0, 0, 0.15);
+  border-radius: 4px;
+  font-size: 12px;
+  font-family: inherit;
+  background: rgba(255, 255, 255, 0.9);
+  color: var(--widget-text-primary);
+  outline: none;
+  transition: border-color 0.2s ease;
+}
+
+.fake-discount-target-input:focus {
+  border-color: var(--widget-primary);
+}
+
+.fake-discount-target-input::placeholder {
+  color: var(--widget-text-secondary);
+  opacity: 0.6;
+}
+
+/* Hide number input spinners */
+.fake-discount-target-input::-webkit-outer-spin-button,
+.fake-discount-target-input::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+.fake-discount-target-btn {
+  padding: 3px 10px;
+  border: none;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 600;
+  font-family: inherit;
+  background: var(--widget-primary);
+  color: #ffffff;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.fake-discount-target-btn:hover {
+  background: var(--widget-primary-dark);
+}
+
+.fake-discount-target-status {
+  font-size: 10px;
+  color: var(--widget-text-secondary);
+}
+
+.fake-discount-target-status.active {
+  color: var(--widget-primary);
+  font-weight: 600;
+}
+
+/* Prominent green pill when current price is at or below the user's target. */
+.fake-discount-target-status.reached {
+  background: linear-gradient(135deg, var(--widget-success) 0%, var(--widget-success-dark) 100%);
+  color: #ffffff;
+  font-weight: 700;
+  font-size: 11px;
+  padding: 4px 10px;
+  border-radius: 12px;
+  box-shadow: 0 2px 6px rgba(16, 185, 129, 0.35);
+  animation: targetReachedPulse 2s ease-in-out infinite;
+}
+
+@keyframes targetReachedPulse {
+  0%, 100% { box-shadow: 0 2px 6px rgba(16, 185, 129, 0.35); }
+  50% { box-shadow: 0 2px 14px rgba(16, 185, 129, 0.6); }
+}
+
+/* Loading State */
+.fake-discount-loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 60px 24px;
+  color: var(--widget-text-secondary);
+}
+
+.fake-discount-loading::before {
+  content: '';
+  width: 24px;
+  height: 24px;
+  border: 2px solid rgba(59, 130, 246, 0.3);
+  border-top-color: var(--widget-primary);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+  margin-right: 12px;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+/* Error State */
+.fake-discount-error {
+  padding: 24px;
+  background: rgba(254, 226, 226, 0.8);
+  border: 1px solid rgba(252, 165, 165, 0.5);
+  border-radius: 12px;
+  color: var(--widget-danger-dark);
+  text-align: center;
+  font-size: 14px;
+  backdrop-filter: blur(10px);
+}
+
+/* Responsive Design */
+@media (max-width: 600px) {
+  .fake-discount-stats-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .fake-discount-stats-grid.two-cols {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
+  .fake-discount-stat-item {
+    padding: 16px;
+    border-bottom: 1px solid rgba(0, 0, 0, 0.05);
+  }
+
+  .fake-discount-stat-item:last-child {
+    border-bottom: none;
+  }
+
+  .fake-discount-verdict-banner {
+    font-size: 15px;
+    padding: 16px 50px 16px 20px;
+  }
+
+  .fake-discount-site-indicator {
+    padding: 4px 10px;
+    font-size: 9px;
+    right: 12px;
+  }
+
+  .fake-discount-chart {
+    height: 220px;
+  }
+
+  .fake-discount-chart-container {
+    padding: 16px;
+  }
+
+  .fake-discount-info-bar {
+    padding: 10px 12px;
+    gap: 8px;
+  }
+
+  .fake-discount-info-item {
+    padding: 3px 8px;
+    font-size: 10px;
+  }
+
+  .fake-discount-info-icon {
+    font-size: 12px;
+  }
+
+  .fake-discount-info-text {
+    font-size: 10px;
+  }
+}
+
+/* Animation for widget entrance */
+@keyframes widgetFadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+#fake-discount-widget {
+  animation: widgetFadeIn 0.4s ease-out;
+}
+
+/* Tooltip Styles */
+.fake-discount-tooltip {
+  position: absolute;
+  background: rgba(31, 41, 55, 0.95);
+  color: white;
+  padding: 10px 14px;
+  border-radius: 8px;
+  font-size: 13px;
+  pointer-events: none;
+  z-index: 1000;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  backdrop-filter: blur(8px);
+  white-space: nowrap;
+}
+
+.fake-discount-tooltip::after {
+  content: '';
+  position: absolute;
+  bottom: -6px;
+  left: 50%;
+  transform: translateX(-50%);
+  border-width: 6px 6px 0;
+  border-style: solid;
+  border-color: rgba(31, 41, 55, 0.95) transparent transparent;
+}
+
+/* Print Styles */
+@media print {
+  #fake-discount-widget {
+    box-shadow: none;
+    border: 1px solid #ddd;
+  }
+
+  .fake-discount-verdict-banner::before {
+    display: none;
+  }
+}

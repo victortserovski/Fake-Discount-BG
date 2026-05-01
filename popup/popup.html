@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Fake Discount BG - Settings</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <div class="popup-container">
+    <div class="popup-header">
+      <h1>Fake Discount BG</h1>
+    </div>
+
+    <div class="popup-section">
+      <h2 id="settings-title">Loading...</h2>
+      
+      <div class="setting-item">
+        <label for="language-select" id="language-label">Loading...</label>
+        <select id="language-select" name="language-select">
+          <option value="bg">Български</option>
+          <option value="en">English</option>
+        </select>
+      </div>
+
+      <div class="setting-item">
+        <label>
+          <input type="checkbox" id="enable-emag" name="enable-emag" checked>
+          <span id="enable-emag-label">Loading...</span>
+        </label>
+        <p class="setting-description" id="enable-emag-desc"></p>
+      </div>
+
+      <div class="setting-item">
+        <label>
+          <input type="checkbox" id="enable-ozone" name="enable-ozone" checked>
+          <span id="enable-ozone-label">Loading...</span>
+        </label>
+        <p class="setting-description" id="enable-ozone-desc"></p>
+      </div>
+
+      <div class="setting-item">
+        <label>
+          <input type="checkbox" id="show-widget" name="show-widget" checked>
+          <span id="show-widget-label">Loading...</span>
+        </label>
+        <p class="setting-description" id="show-widget-desc"></p>
+      </div>
+    </div>
+
+    <div class="popup-section">
+      <h2 id="storage-title">Loading...</h2>
+      
+      <div class="storage-info">
+        <div class="storage-item">
+          <span id="storage-used-label">Loading...</span>
+          <span id="storage-percentage" class="storage-value">0%</span>
+        </div>
+        <div class="storage-bar">
+          <div id="storage-fill" class="storage-fill"></div>
+        </div>
+        
+        <div class="storage-item">
+          <span id="tracked-products-label">Loading...</span>
+          <span id="tracked-products-count" class="storage-value">0</span>
+        </div>
+      </div>
+
+      <div class="storage-actions">
+        <button id="cleanup-old" class="btn btn-secondary">Loading...</button>
+        <button id="clear-history" class="btn btn-danger">Loading...</button>
+      </div>
+    </div>
+
+    <div class="popup-section">
+      <h2 id="followed-products-title">Loading...</h2>
+      <div id="followed-products-list" class="followed-products-list">
+        <!-- Products will be inserted here -->
+      </div>
+      <div id="no-products-message" class="no-products-message" style="display: none;">
+        Loading...
+      </div>
+    </div>
+
+    <div class="popup-section">
+      <h2 id="data-title">Loading...</h2>
+      <div class="data-actions">
+        <button id="export-data" class="btn btn-primary">Loading...</button>
+        <button id="import-data" class="btn btn-primary">Loading...</button>
+        <input type="file" id="import-file" name="import-file" accept=".json" style="display: none;">
+      </div>
+    </div>
+  </div>
+
+  <script src="../i18n/i18n.js"></script>
+  <script src="popup.js"></script>
+</body>
+</html>
