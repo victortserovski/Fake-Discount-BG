@@ -10,11 +10,60 @@
   <div class="popup-container">
     <div class="popup-header">
       <h1>Fake Discount BG</h1>
+      <a href="#" id="open-fullview" class="open-fullview" title="Open in full tab">↗</a>
     </div>
 
-    <div class="popup-section">
-      <h2 id="settings-title">Loading...</h2>
-      
+    <nav class="tabs" role="tablist">
+      <button class="tab-btn active" data-tab="products" id="tab-products" role="tab" aria-selected="true">Loading...</button>
+      <button class="tab-btn" data-tab="settings" id="tab-settings" role="tab" aria-selected="false">Loading...</button>
+      <button class="tab-btn" data-tab="data" id="tab-data" role="tab" aria-selected="false">Loading...</button>
+    </nav>
+
+    <!-- PRODUCTS TAB -->
+    <section class="tab-panel active" data-tab-panel="products">
+      <div class="filter-bar">
+        <input type="search" id="search-input" class="search-input" placeholder="Loading...">
+
+        <div class="filter-chips" id="site-filter-chips" role="group">
+          <button class="chip active" data-site="emag" type="button">EMAG</button>
+          <button class="chip active" data-site="ozone" type="button">OZONE</button>
+          <button class="chip active" data-site="notino" type="button">NOTINO</button>
+          <button class="chip active" data-site="technopolis" type="button">TECHNOPOLIS</button>
+          <button class="chip active" data-site="technomarket" type="button">TECHNOMARKET</button>
+          <button class="chip active" data-site="zora" type="button">ZORA</button>
+          <button class="chip active" data-site="ardes" type="button">ARDES</button>
+          <button class="chip active" data-site="plesio" type="button">PLESIO</button>
+          <button class="chip active" data-site="aboutyou" type="button">ABOUT YOU</button>
+          <button class="chip active" data-site="answear" type="button">ANSWEAR</button>
+          <button class="chip active" data-site="decathlon" type="button">DECATHLON</button>
+          <button class="chip active" data-site="dm" type="button">DM</button>
+          <button class="chip active" data-site="fashiondays" type="button">FASHION DAYS</button>
+          <button class="chip active" data-site="lilly" type="button">LILLY</button>
+          <button class="chip active" data-site="bricolage" type="button">MR.BRICOLAGE</button>
+          <button class="chip active" data-site="obuvki" type="button">OBUVKI</button>
+          <button class="chip active" data-site="praktiker" type="button">PRAKTIKER</button>
+          <button class="chip active" data-site="sopharmacy" type="button">SOPHARMACY</button>
+          <button class="chip active" data-site="sportdepot" type="button">SPORT DEPOT</button>
+          <button class="chip active" data-site="ebag" type="button">EBAG</button>
+        </div>
+
+        <div class="sort-row">
+          <label for="sort-select" id="sort-label">Loading...</label>
+          <select id="sort-select" name="sort-select">
+            <option value="recent">recent</option>
+            <option value="price-asc">price-asc</option>
+            <option value="price-desc">price-desc</option>
+            <option value="targets">targets</option>
+          </select>
+        </div>
+      </div>
+
+      <div id="followed-products-list" class="followed-products-list"></div>
+      <div id="no-products-message" class="no-products-message" style="display: none;">Loading...</div>
+    </section>
+
+    <!-- SETTINGS TAB -->
+    <section class="tab-panel" data-tab-panel="settings" hidden>
       <div class="setting-item">
         <label for="language-select" id="language-label">Loading...</label>
         <select id="language-select" name="language-select">
@@ -41,16 +90,171 @@
 
       <div class="setting-item">
         <label>
+          <input type="checkbox" id="enable-notino" name="enable-notino" checked>
+          <span id="enable-notino-label">Loading...</span>
+        </label>
+        <p class="setting-description" id="enable-notino-desc"></p>
+      </div>
+
+      <div class="setting-item">
+        <label>
+          <input type="checkbox" id="enable-technopolis" name="enable-technopolis" checked>
+          <span id="enable-technopolis-label">Loading...</span>
+        </label>
+        <p class="setting-description" id="enable-technopolis-desc"></p>
+      </div>
+
+      <div class="setting-item">
+        <label>
+          <input type="checkbox" id="enable-technomarket" name="enable-technomarket" checked>
+          <span id="enable-technomarket-label">Loading...</span>
+        </label>
+        <p class="setting-description" id="enable-technomarket-desc"></p>
+      </div>
+
+      <div class="setting-item">
+        <label>
+          <input type="checkbox" id="enable-zora" name="enable-zora" checked>
+          <span id="enable-zora-label">Loading...</span>
+        </label>
+        <p class="setting-description" id="enable-zora-desc"></p>
+      </div>
+
+      <div class="setting-item">
+        <label>
+          <input type="checkbox" id="enable-ardes" name="enable-ardes" checked>
+          <span id="enable-ardes-label">Loading...</span>
+        </label>
+        <p class="setting-description" id="enable-ardes-desc"></p>
+      </div>
+
+      <div class="setting-item">
+        <label>
+          <input type="checkbox" id="enable-plesio" name="enable-plesio" checked>
+          <span id="enable-plesio-label">Loading...</span>
+        </label>
+        <p class="setting-description" id="enable-plesio-desc"></p>
+      </div>
+
+      <div class="setting-item">
+        <label>
+          <input type="checkbox" id="enable-aboutyou" name="enable-aboutyou" checked>
+          <span id="enable-aboutyou-label">Loading...</span>
+        </label>
+        <p class="setting-description" id="enable-aboutyou-desc"></p>
+      </div>
+
+      <div class="setting-item">
+        <label>
+          <input type="checkbox" id="enable-answear" name="enable-answear" checked>
+          <span id="enable-answear-label">Loading...</span>
+        </label>
+        <p class="setting-description" id="enable-answear-desc"></p>
+      </div>
+
+      <div class="setting-item">
+        <label>
+          <input type="checkbox" id="enable-decathlon" name="enable-decathlon" checked>
+          <span id="enable-decathlon-label">Loading...</span>
+        </label>
+        <p class="setting-description" id="enable-decathlon-desc"></p>
+      </div>
+
+      <div class="setting-item">
+        <label>
+          <input type="checkbox" id="enable-dm" name="enable-dm" checked>
+          <span id="enable-dm-label">Loading...</span>
+        </label>
+        <p class="setting-description" id="enable-dm-desc"></p>
+      </div>
+
+      <div class="setting-item">
+        <label>
+          <input type="checkbox" id="enable-fashiondays" name="enable-fashiondays" checked>
+          <span id="enable-fashiondays-label">Loading...</span>
+        </label>
+        <p class="setting-description" id="enable-fashiondays-desc"></p>
+      </div>
+
+      <div class="setting-item">
+        <label>
+          <input type="checkbox" id="enable-lilly" name="enable-lilly" checked>
+          <span id="enable-lilly-label">Loading...</span>
+        </label>
+        <p class="setting-description" id="enable-lilly-desc"></p>
+      </div>
+
+      <div class="setting-item">
+        <label>
+          <input type="checkbox" id="enable-bricolage" name="enable-bricolage" checked>
+          <span id="enable-bricolage-label">Loading...</span>
+        </label>
+        <p class="setting-description" id="enable-bricolage-desc"></p>
+      </div>
+
+      <div class="setting-item">
+        <label>
+          <input type="checkbox" id="enable-obuvki" name="enable-obuvki" checked>
+          <span id="enable-obuvki-label">Loading...</span>
+        </label>
+        <p class="setting-description" id="enable-obuvki-desc"></p>
+      </div>
+
+      <div class="setting-item">
+        <label>
+          <input type="checkbox" id="enable-praktiker" name="enable-praktiker" checked>
+          <span id="enable-praktiker-label">Loading...</span>
+        </label>
+        <p class="setting-description" id="enable-praktiker-desc"></p>
+      </div>
+
+      <div class="setting-item">
+        <label>
+          <input type="checkbox" id="enable-sopharmacy" name="enable-sopharmacy" checked>
+          <span id="enable-sopharmacy-label">Loading...</span>
+        </label>
+        <p class="setting-description" id="enable-sopharmacy-desc"></p>
+      </div>
+
+      <div class="setting-item">
+        <label>
+          <input type="checkbox" id="enable-sportdepot" name="enable-sportdepot" checked>
+          <span id="enable-sportdepot-label">Loading...</span>
+        </label>
+        <p class="setting-description" id="enable-sportdepot-desc"></p>
+      </div>
+
+      <div class="setting-item">
+        <label>
+          <input type="checkbox" id="enable-ebag" name="enable-ebag" checked>
+          <span id="enable-ebag-label">Loading...</span>
+        </label>
+        <p class="setting-description" id="enable-ebag-desc"></p>
+      </div>
+
+      <div class="setting-item">
+        <label>
           <input type="checkbox" id="show-widget" name="show-widget" checked>
           <span id="show-widget-label">Loading...</span>
         </label>
         <p class="setting-description" id="show-widget-desc"></p>
       </div>
-    </div>
 
-    <div class="popup-section">
+      <!-- About: version, contact email, keyboard shortcut info.
+           All content populated by popup.js so the version stays in sync
+           with manifest.json automatically. -->
+      <div class="about-section">
+        <h2 id="about-title">About</h2>
+        <p class="about-version" id="about-version">…</p>
+        <p class="about-contact" id="about-contact"></p>
+        <p class="about-shortcut" id="about-shortcut"></p>
+        <p class="about-shortcut-customize" id="about-shortcut-customize"></p>
+      </div>
+    </section>
+
+    <!-- DATA TAB -->
+    <section class="tab-panel" data-tab-panel="data" hidden>
       <h2 id="storage-title">Loading...</h2>
-      
       <div class="storage-info">
         <div class="storage-item">
           <span id="storage-used-label">Loading...</span>
@@ -59,7 +263,6 @@
         <div class="storage-bar">
           <div id="storage-fill" class="storage-fill"></div>
         </div>
-        
         <div class="storage-item">
           <span id="tracked-products-label">Loading...</span>
           <span id="tracked-products-count" class="storage-value">0</span>
@@ -70,26 +273,19 @@
         <button id="cleanup-old" class="btn btn-secondary">Loading...</button>
         <button id="clear-history" class="btn btn-danger">Loading...</button>
       </div>
-    </div>
 
-    <div class="popup-section">
-      <h2 id="followed-products-title">Loading...</h2>
-      <div id="followed-products-list" class="followed-products-list">
-        <!-- Products will be inserted here -->
-      </div>
-      <div id="no-products-message" class="no-products-message" style="display: none;">
-        Loading...
-      </div>
-    </div>
-
-    <div class="popup-section">
-      <h2 id="data-title">Loading...</h2>
+      <h2 id="data-title" style="margin-top: 20px;">Loading...</h2>
       <div class="data-actions">
         <button id="export-data" class="btn btn-primary">Loading...</button>
         <button id="import-data" class="btn btn-primary">Loading...</button>
         <input type="file" id="import-file" name="import-file" accept=".json" style="display: none;">
       </div>
-    </div>
+    </section>
+
+    <!-- Persistent footer: tracked count + storage usage at a glance -->
+    <footer class="popup-footer">
+      <span id="footer-summary">…</span>
+    </footer>
   </div>
 
   <script src="../i18n/i18n.js"></script>

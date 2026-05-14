@@ -30,11 +30,23 @@
 }
 
 body {
-  width: 380px;
+  width: 500px;
   min-height: 400px;
   font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
   background: linear-gradient(135deg, #667eea 0%, #764ba2 50%, #3B82F6 100%);
   background-attachment: fixed;
+}
+
+/* Full-tab view: when popup.html is opened as a Chrome tab via the
+   "↗" header link (?fullview=1), drop the fixed popup width so the
+   layout fluidly fills the tab. Same DOM, different sizing. */
+body.fullview {
+  width: auto;
+  min-height: 100vh;
+}
+body.fullview .popup-container {
+  max-width: 1100px;
+  margin: 0 auto;
 }
 
 .popup-container {
@@ -76,6 +88,214 @@ body {
   letter-spacing: -0.5px;
   position: relative;
   z-index: 1;
+}
+
+/* "Open in full tab" link in the top-right of the header. */
+.open-fullview {
+  position: absolute;
+  top: 14px;
+  right: 16px;
+  z-index: 2;
+  width: 28px;
+  height: 28px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.2);
+  color: white;
+  text-decoration: none;
+  font-size: 16px;
+  font-weight: 700;
+  transition: var(--transition);
+}
+.open-fullview:hover {
+  background: rgba(255, 255, 255, 0.35);
+  transform: scale(1.05);
+}
+body.fullview .open-fullview {
+  display: none;
+}
+
+/* Tab nav */
+.tabs {
+  display: flex;
+  background: rgba(255, 255, 255, 0.5);
+  border-bottom: 1px solid var(--border-color);
+  padding: 0 8px;
+  gap: 4px;
+}
+.tab-btn {
+  flex: 1;
+  background: transparent;
+  border: none;
+  padding: 12px 8px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+  transition: var(--transition);
+  font-family: inherit;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+}
+.tab-btn:hover {
+  color: var(--text-primary);
+  background: rgba(255, 255, 255, 0.4);
+}
+.tab-btn.active {
+  color: var(--primary);
+  border-bottom-color: var(--primary);
+}
+
+.tab-panel {
+  padding: 16px 20px;
+}
+.tab-panel[hidden] {
+  display: none;
+}
+
+/* Section headings inside tab panels (e.g. "Storage", "Data" on the
+   Data tab). The old `.popup-section h2` rule no longer applies because
+   the new layout wraps each tab in `.tab-panel`, so without this the
+   h2 falls back to browser-default styling (black bold) — invisible
+   in dark mode. */
+.tab-panel h2 {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: 14px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+/* Filter bar inside Products tab */
+.filter-bar {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-bottom: 14px;
+}
+
+.search-input {
+  width: 100%;
+  padding: 10px 14px;
+  border: 1px solid var(--glass-border);
+  border-radius: var(--radius-md);
+  font-size: 13px;
+  font-family: inherit;
+  color: var(--text-primary);
+  background: rgba(255, 255, 255, 0.85);
+  transition: var(--transition);
+}
+.search-input::placeholder {
+  color: var(--text-muted);
+}
+.search-input:focus {
+  outline: none;
+  border-color: var(--primary);
+  background: #ffffff;
+}
+
+.filter-chips {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.chip {
+  padding: 6px 12px;
+  font-size: 11px;
+  font-weight: 700;
+  font-family: inherit;
+  border: 1px solid var(--glass-border);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.6);
+  color: var(--text-secondary);
+  cursor: pointer;
+  letter-spacing: 0.4px;
+  transition: var(--transition);
+}
+.chip:hover {
+  background: rgba(255, 255, 255, 0.85);
+}
+.chip.active[data-site="emag"]         { background: linear-gradient(135deg, #2962FF 0%, #448AFF 100%); color: white; border-color: transparent; }
+.chip.active[data-site="ozone"]        { background: linear-gradient(135deg, #FF6600 0%, #FF8533 100%); color: white; border-color: transparent; }
+.chip.active[data-site="notino"]       { background: linear-gradient(135deg, #DC0069 0%, #F0408F 100%); color: white; border-color: transparent; }
+.chip.active[data-site="technopolis"]  { background: linear-gradient(135deg, #E30613 0%, #F04E55 100%); color: white; border-color: transparent; }
+.chip.active[data-site="technomarket"] { background: linear-gradient(135deg, #FFC700 0%, #FFD840 100%); color: #1a1a1a; border-color: transparent; }
+.chip.active[data-site="zora"]         { background: linear-gradient(135deg, #009688 0%, #26A69A 100%); color: white; border-color: transparent; }
+.chip.active[data-site="ardes"]        { background: linear-gradient(135deg, #003DA5 0%, #1F65C4 100%); color: white; border-color: transparent; }
+.chip.active[data-site="plesio"]       { background: linear-gradient(135deg, #E60012 0%, #F04458 100%); color: white; border-color: transparent; }
+.chip.active[data-site="aboutyou"]     { background: linear-gradient(135deg, #1F1F1F 0%, #4A4A4A 100%); color: white; border-color: transparent; }
+.chip.active[data-site="answear"]      { background: linear-gradient(135deg, #C70039 0%, #E63E5C 100%); color: white; border-color: transparent; }
+.chip.active[data-site="decathlon"]    { background: linear-gradient(135deg, #0082C3 0%, #2BA8E5 100%); color: white; border-color: transparent; }
+.chip.active[data-site="dm"]           { background: linear-gradient(135deg, #002878 0%, #2046A8 100%); color: white; border-color: transparent; }
+.chip.active[data-site="fashiondays"]  { background: linear-gradient(135deg, #000000 0%, #2C2C2C 100%); color: white; border-color: transparent; }
+.chip.active[data-site="lilly"]        { background: linear-gradient(135deg, #E91E63 0%, #F06292 100%); color: white; border-color: transparent; }
+.chip.active[data-site="bricolage"]    { background: linear-gradient(135deg, #007A33 0%, #2EA84F 100%); color: white; border-color: transparent; }
+.chip.active[data-site="obuvki"]       { background: linear-gradient(135deg, #FF4F00 0%, #FF7733 100%); color: white; border-color: transparent; }
+.chip.active[data-site="praktiker"]    { background: linear-gradient(135deg, #FFD700 0%, #FFE54C 100%); color: #1a1a1a; border-color: transparent; }
+.chip.active[data-site="sopharmacy"]   { background: linear-gradient(135deg, #00A896 0%, #2EC4B6 100%); color: white; border-color: transparent; }
+.chip.active[data-site="sportdepot"]   { background: linear-gradient(135deg, #003B71 0%, #1F66A8 100%); color: white; border-color: transparent; }
+.chip.active[data-site="ebag"]         { background: linear-gradient(135deg, #FF8800 0%, #FFAA33 100%); color: white; border-color: transparent; }
+
+.sort-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.sort-row label {
+  font-size: 12px;
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+.sort-row select {
+  flex: 1;
+  padding: 6px 28px 6px 10px;
+  font-size: 12px;
+  font-family: inherit;
+  border: 1px solid var(--glass-border);
+  border-radius: var(--radius-sm);
+  background-color: rgba(255, 255, 255, 0.85);
+  color: var(--text-primary);
+  cursor: pointer;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 12 12'%3E%3Cpath fill='%236B7280' d='M6 8L1 3h10z'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 10px center;
+  appearance: none;
+  -webkit-appearance: none;
+}
+/* Native <option> elements need explicit colors — they don't inherit
+   the parent <select>'s text color reliably across browsers, so without
+   these the dropdown list appears white-on-white in dark mode. */
+.sort-row select option {
+  background-color: #ffffff;
+  color: #1F2937;
+  padding: 6px 10px;
+}
+
+/* Persistent footer */
+.popup-footer {
+  padding: 8px 20px;
+  font-size: 11px;
+  color: var(--text-secondary);
+  text-align: center;
+  border-top: 1px solid var(--border-color);
+  background: rgba(255, 255, 255, 0.4);
+}
+
+/* Dark-mode tweaks for new components */
+@media (prefers-color-scheme: dark) {
+  .tabs { background: rgba(255, 255, 255, 0.05); }
+  .tab-btn:hover { background: rgba(255, 255, 255, 0.08); }
+  .search-input,
+  .sort-row select { background-color: rgba(255, 255, 255, 0.06); color: var(--text-primary); }
+  .search-input:focus { background-color: rgba(255, 255, 255, 0.1); }
+  .sort-row select option { background-color: #2d2d3d; color: #F9FAFB; }
+  .chip { background: rgba(255, 255, 255, 0.06); color: var(--text-secondary); }
+  .chip:hover { background: rgba(255, 255, 255, 0.12); }
+  .popup-footer { background: rgba(255, 255, 255, 0.04); }
 }
 
 /* Sections */
@@ -311,39 +531,22 @@ body {
   display: none;
 }
 
-/* Product List */
+/* Product List — no inner scroll. The whole popup scrolls as one region;
+   in fullview mode the body scrolls naturally. This eliminates the
+   nested-scroll trap the older layout had. */
 .followed-products-list {
-  max-height: 350px;
-  overflow-y: auto;
-  padding-right: 4px;
+  padding-right: 0;
 }
 
-.followed-products-list::-webkit-scrollbar {
-  width: 6px;
-}
-
-.followed-products-list::-webkit-scrollbar-track {
-  background: transparent;
-}
-
-.followed-products-list::-webkit-scrollbar-thumb {
-  background: rgba(0, 0, 0, 0.15);
-  border-radius: 10px;
-}
-
-.followed-products-list::-webkit-scrollbar-thumb:hover {
-  background: rgba(0, 0, 0, 0.25);
-}
-
-/* Product Item Card */
+/* Product Item Card (compact) */
 .product-item {
   display: flex;
   align-items: center;
-  padding: 14px;
+  padding: 10px 12px;
   background: rgba(255, 255, 255, 0.6);
   border: 1px solid var(--glass-border);
   border-radius: var(--radius-md);
-  margin-bottom: 10px;
+  margin-bottom: 8px;
   transition: var(--transition);
   cursor: pointer;
 }
@@ -436,18 +639,47 @@ body {
   color: var(--text-muted);
 }
 
-/* Site Badge */
+/* Short text label next to the trend arrow ("higher" / "lower" / "same").
+   Muted gray so the colored arrow stays the primary visual indicator
+   and the label just adds the explanation. */
+.product-trend-label {
+  font-size: 11px;
+  color: var(--text-secondary);
+  font-weight: 500;
+}
+
+/* Push the site badge to the far right of the meta row so the trend
+   label has room without crowding the badge. */
+.product-meta .site-badge {
+  margin-left: auto;
+}
+
+/* Email address in the About section: single click selects the entire
+   address (better than triple-click) without needing JS or a mailto link. */
+.email-text {
+  user-select: all;
+  -webkit-user-select: all;
+  font-weight: 500;
+  color: var(--primary);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  cursor: text;
+}
+
+/* Site Badge — padding-based pill so it auto-fits the full storefront
+   name (EMAG / OZONE / NOTINO) without a fixed width. */
 .site-badge {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 28px;
+  padding: 6px 10px;
   height: 28px;
-  border-radius: 6px;
+  border-radius: 12px;
   font-size: 10px;
   font-weight: 700;
   color: white;
   letter-spacing: 0.5px;
+  white-space: nowrap;
+  flex-shrink: 0;
 }
 
 .site-badge.emag {
@@ -456,6 +688,169 @@ body {
 
 .site-badge.ozone {
   background: linear-gradient(135deg, #FF6600 0%, #FF8533 100%);
+}
+
+.site-badge.notino {
+  background: linear-gradient(135deg, #DC0069 0%, #F0408F 100%);
+}
+
+.site-badge.technopolis {
+  background: linear-gradient(135deg, #E30613 0%, #F04E55 100%);
+}
+
+.site-badge.technomarket {
+  background: linear-gradient(135deg, #FFC700 0%, #FFD840 100%);
+  color: #1a1a1a;
+}
+
+.site-badge.zora {
+  background: linear-gradient(135deg, #009688 0%, #26A69A 100%);
+}
+
+.site-badge.ardes {
+  background: linear-gradient(135deg, #003DA5 0%, #1F65C4 100%);
+}
+
+.site-badge.plesio {
+  background: linear-gradient(135deg, #E60012 0%, #F04458 100%);
+}
+
+.site-badge.aboutyou {
+  background: linear-gradient(135deg, #1F1F1F 0%, #4A4A4A 100%);
+}
+
+.site-badge.answear {
+  background: linear-gradient(135deg, #C70039 0%, #E63E5C 100%);
+}
+
+.site-badge.decathlon {
+  background: linear-gradient(135deg, #0082C3 0%, #2BA8E5 100%);
+}
+
+.site-badge.dm {
+  background: linear-gradient(135deg, #002878 0%, #2046A8 100%);
+}
+
+.site-badge.fashiondays {
+  background: linear-gradient(135deg, #000000 0%, #2C2C2C 100%);
+}
+
+.site-badge.lilly {
+  background: linear-gradient(135deg, #E91E63 0%, #F06292 100%);
+}
+
+.site-badge.bricolage {
+  background: linear-gradient(135deg, #007A33 0%, #2EA84F 100%);
+}
+
+.site-badge.obuvki {
+  background: linear-gradient(135deg, #FF4F00 0%, #FF7733 100%);
+}
+
+.site-badge.praktiker {
+  background: linear-gradient(135deg, #FFD700 0%, #FFE54C 100%);
+  color: #1a1a1a;
+}
+
+.site-badge.sopharmacy {
+  background: linear-gradient(135deg, #00A896 0%, #2EC4B6 100%);
+}
+
+.site-badge.sportdepot {
+  background: linear-gradient(135deg, #003B71 0%, #1F66A8 100%);
+}
+
+.site-badge.ebag {
+  background: linear-gradient(135deg, #FF8800 0%, #FFAA33 100%);
+}
+
+/* EAN/GTIN row under the product title — small, muted, monospace.
+   Stored as metadata for future cross-site matching; shown so the user
+   can spot-check that extraction is working per product.
+   Click-to-copy: cursor + hover hint, brief green flash on success. */
+.product-ean {
+  font-size: 10px;
+  color: #888;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  letter-spacing: 0.2px;
+  margin-top: 2px;
+  cursor: pointer;
+  transition: color 0.2s ease;
+  user-select: none;
+}
+.product-ean:hover {
+  color: var(--primary);
+}
+.product-ean.copied {
+  color: var(--success);
+  font-weight: 600;
+}
+
+/* "Last seen X days ago" — even more subdued than EAN.
+   Tells the user when the price was last refreshed. */
+.product-lastseen {
+  font-size: 10px;
+  color: var(--text-muted);
+  margin-top: 1px;
+  font-style: italic;
+}
+
+/* About section in Settings tab */
+.about-section {
+  margin-top: 24px;
+  padding-top: 16px;
+  border-top: 1px solid var(--border-color);
+}
+.about-section h2 {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+.about-version {
+  font-size: 12px;
+  color: var(--text-muted);
+  margin-bottom: 10px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+.about-contact,
+.about-shortcut,
+.about-shortcut-customize {
+  font-size: 12px;
+  color: var(--text-secondary);
+  line-height: 1.5;
+  margin-bottom: 8px;
+}
+.about-contact a,
+.about-shortcut-customize a {
+  color: var(--primary);
+  text-decoration: none;
+  font-weight: 500;
+}
+.about-contact a:hover,
+.about-shortcut-customize a:hover {
+  text-decoration: underline;
+}
+.about-shortcut kbd {
+  display: inline-block;
+  padding: 2px 8px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-primary);
+  background: rgba(255, 255, 255, 0.7);
+  border: 1px solid var(--glass-border);
+  border-radius: 4px;
+  box-shadow: 0 1px 0 rgba(0, 0, 0, 0.05);
+}
+
+@media (prefers-color-scheme: dark) {
+  .about-shortcut kbd {
+    background: rgba(255, 255, 255, 0.08);
+    color: var(--text-primary);
+  }
 }
 
 /* Delete Button */

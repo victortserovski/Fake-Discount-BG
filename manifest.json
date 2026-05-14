@@ -1,16 +1,49 @@
 {
   "manifest_version": 3,
   "name": "Fake Discount BG",
-  "version": "3.6.16",
-  "description": "Detects fake discounts on Emag.bg and Ozone.bg by tracking price history",
+  "version": "3.15.2",
+  "description": "Spot fake discounts on Bulgarian shops with local price history, charts, targets, and deal verdicts.",
   "permissions": [
     "storage",
-    "activeTab",
     "tabs"
   ],
   "host_permissions": [
     "https://www.emag.bg/*",
-    "https://www.ozone.bg/*"
+    "https://www.ozone.bg/*",
+    "https://www.notino.bg/*",
+    "https://www.technopolis.bg/*",
+    "https://www.technomarket.bg/*",
+    "https://zora.bg/*",
+    "https://www.zora.bg/*",
+    "https://ardes.bg/*",
+    "https://www.ardes.bg/*",
+    "https://plesio.bg/*",
+    "https://www.plesio.bg/*",
+    "https://www.aboutyou.bg/*",
+    "https://aboutyou.bg/*",
+    "https://answear.bg/*",
+    "https://www.answear.bg/*",
+    "https://www.decathlon.bg/*",
+    "https://decathlon.bg/*",
+    "https://www.dm-drogeriemarkt.bg/*",
+    "https://dm-drogeriemarkt.bg/*",
+    "https://www.fashiondays.bg/*",
+    "https://fashiondays.bg/*",
+    "https://lillydrogerie.bg/*",
+    "https://www.lillydrogerie.bg/*",
+    "https://mr-bricolage.bg/*",
+    "https://www.mr-bricolage.bg/*",
+    "https://obuvki.bg/*",
+    "https://www.obuvki.bg/*",
+    "https://praktiker.bg/*",
+    "https://www.praktiker.bg/*",
+    "https://sopharmacy.bg/*",
+    "https://www.sopharmacy.bg/*",
+    "https://www.sportdepot.bg/*",
+    "https://sportdepot.bg/*",
+    "https://www.ebag.bg/*",
+    "https://ebag.bg/*",
+    "https://gdfsqujcjqktjhhgkxbs.supabase.co/*"
   ],
   "background": {
     "service_worker": "background/service-worker.js"
@@ -43,6 +76,273 @@
         "content/ozone.js"
       ],
       "run_at": "document_idle"
+    },
+    {
+      "matches": [
+        "https://www.notino.bg/*"
+      ],
+      "js": [
+        "i18n/i18n.js",
+        "ui/advanced-chart.js",
+        "ui/price-graph-widget.js",
+        "content/product-parser.js",
+        "content/content-base.js",
+        "content/notino.js"
+      ],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": [
+        "https://www.technopolis.bg/*"
+      ],
+      "js": [
+        "i18n/i18n.js",
+        "ui/advanced-chart.js",
+        "ui/price-graph-widget.js",
+        "content/product-parser.js",
+        "content/content-base.js",
+        "content/technopolis.js"
+      ],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": [
+        "https://www.technomarket.bg/*"
+      ],
+      "js": [
+        "i18n/i18n.js",
+        "ui/advanced-chart.js",
+        "ui/price-graph-widget.js",
+        "content/product-parser.js",
+        "content/content-base.js",
+        "content/technomarket.js"
+      ],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": [
+        "https://zora.bg/*",
+        "https://www.zora.bg/*"
+      ],
+      "js": [
+        "i18n/i18n.js",
+        "ui/advanced-chart.js",
+        "ui/price-graph-widget.js",
+        "content/product-parser.js",
+        "content/content-base.js",
+        "content/zora.js"
+      ],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": [
+        "https://ardes.bg/*",
+        "https://www.ardes.bg/*"
+      ],
+      "js": [
+        "i18n/i18n.js",
+        "ui/advanced-chart.js",
+        "ui/price-graph-widget.js",
+        "content/product-parser.js",
+        "content/content-base.js",
+        "content/ardes.js"
+      ],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": [
+        "https://plesio.bg/*",
+        "https://www.plesio.bg/*"
+      ],
+      "js": [
+        "i18n/i18n.js",
+        "ui/advanced-chart.js",
+        "ui/price-graph-widget.js",
+        "content/product-parser.js",
+        "content/content-base.js",
+        "content/plesio.js"
+      ],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": [
+        "https://www.aboutyou.bg/*",
+        "https://aboutyou.bg/*"
+      ],
+      "js": [
+        "i18n/i18n.js",
+        "ui/advanced-chart.js",
+        "ui/price-graph-widget.js",
+        "content/product-parser.js",
+        "content/content-base.js",
+        "content/aboutyou.js"
+      ],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": [
+        "https://answear.bg/*",
+        "https://www.answear.bg/*"
+      ],
+      "js": [
+        "i18n/i18n.js",
+        "ui/advanced-chart.js",
+        "ui/price-graph-widget.js",
+        "content/product-parser.js",
+        "content/content-base.js",
+        "content/answear.js"
+      ],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": [
+        "https://www.decathlon.bg/*",
+        "https://decathlon.bg/*"
+      ],
+      "js": [
+        "i18n/i18n.js",
+        "ui/advanced-chart.js",
+        "ui/price-graph-widget.js",
+        "content/product-parser.js",
+        "content/content-base.js",
+        "content/decathlon.js"
+      ],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": [
+        "https://www.dm-drogeriemarkt.bg/*",
+        "https://dm-drogeriemarkt.bg/*"
+      ],
+      "js": [
+        "i18n/i18n.js",
+        "ui/advanced-chart.js",
+        "ui/price-graph-widget.js",
+        "content/product-parser.js",
+        "content/content-base.js",
+        "content/dm.js"
+      ],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": [
+        "https://www.fashiondays.bg/*",
+        "https://fashiondays.bg/*"
+      ],
+      "js": [
+        "i18n/i18n.js",
+        "ui/advanced-chart.js",
+        "ui/price-graph-widget.js",
+        "content/product-parser.js",
+        "content/content-base.js",
+        "content/fashiondays.js"
+      ],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": [
+        "https://lillydrogerie.bg/*",
+        "https://www.lillydrogerie.bg/*"
+      ],
+      "js": [
+        "i18n/i18n.js",
+        "ui/advanced-chart.js",
+        "ui/price-graph-widget.js",
+        "content/product-parser.js",
+        "content/content-base.js",
+        "content/lilly.js"
+      ],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": [
+        "https://mr-bricolage.bg/*",
+        "https://www.mr-bricolage.bg/*"
+      ],
+      "js": [
+        "i18n/i18n.js",
+        "ui/advanced-chart.js",
+        "ui/price-graph-widget.js",
+        "content/product-parser.js",
+        "content/content-base.js",
+        "content/bricolage.js"
+      ],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": [
+        "https://obuvki.bg/*",
+        "https://www.obuvki.bg/*"
+      ],
+      "js": [
+        "i18n/i18n.js",
+        "ui/advanced-chart.js",
+        "ui/price-graph-widget.js",
+        "content/product-parser.js",
+        "content/content-base.js",
+        "content/obuvki.js"
+      ],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": [
+        "https://praktiker.bg/*",
+        "https://www.praktiker.bg/*"
+      ],
+      "js": [
+        "i18n/i18n.js",
+        "ui/advanced-chart.js",
+        "ui/price-graph-widget.js",
+        "content/product-parser.js",
+        "content/content-base.js",
+        "content/praktiker.js"
+      ],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": [
+        "https://sopharmacy.bg/*",
+        "https://www.sopharmacy.bg/*"
+      ],
+      "js": [
+        "i18n/i18n.js",
+        "ui/advanced-chart.js",
+        "ui/price-graph-widget.js",
+        "content/product-parser.js",
+        "content/content-base.js",
+        "content/sopharmacy.js"
+      ],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": [
+        "https://www.sportdepot.bg/*",
+        "https://sportdepot.bg/*"
+      ],
+      "js": [
+        "i18n/i18n.js",
+        "ui/advanced-chart.js",
+        "ui/price-graph-widget.js",
+        "content/product-parser.js",
+        "content/content-base.js",
+        "content/sportdepot.js"
+      ],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": [
+        "https://www.ebag.bg/*",
+        "https://ebag.bg/*"
+      ],
+      "js": [
+        "i18n/i18n.js",
+        "ui/advanced-chart.js",
+        "ui/price-graph-widget.js",
+        "content/product-parser.js",
+        "content/content-base.js",
+        "content/ebag.js"
+      ],
+      "run_at": "document_idle"
     }
   ],
   "action": {
@@ -54,6 +354,15 @@
       "128": "icons/icon128.png"
     }
   },
+  "commands": {
+    "_execute_action": {
+      "suggested_key": {
+        "default": "Ctrl+Shift+F",
+        "mac": "Command+Shift+F"
+      },
+      "description": "Open Fake Discount BG popup"
+    }
+  },
   "icons": {
     "16": "icons/icon16.png",
     "32": "icons/icon32.png",
@@ -63,14 +372,46 @@
   "web_accessible_resources": [
     {
       "resources": [
-        "ui/*.html",
         "ui/*.css",
         "i18n/*.json",
         "icons/*.png"
       ],
       "matches": [
         "https://www.emag.bg/*",
-        "https://www.ozone.bg/*"
+        "https://www.ozone.bg/*",
+        "https://www.notino.bg/*",
+        "https://www.technopolis.bg/*",
+        "https://www.technomarket.bg/*",
+        "https://zora.bg/*",
+        "https://www.zora.bg/*",
+        "https://ardes.bg/*",
+        "https://www.ardes.bg/*",
+        "https://plesio.bg/*",
+        "https://www.plesio.bg/*",
+        "https://www.aboutyou.bg/*",
+        "https://aboutyou.bg/*",
+        "https://answear.bg/*",
+        "https://www.answear.bg/*",
+        "https://www.decathlon.bg/*",
+        "https://decathlon.bg/*",
+        "https://www.dm-drogeriemarkt.bg/*",
+        "https://dm-drogeriemarkt.bg/*",
+        "https://www.fashiondays.bg/*",
+        "https://fashiondays.bg/*",
+        "https://lillydrogerie.bg/*",
+        "https://www.lillydrogerie.bg/*",
+        "https://mr-bricolage.bg/*",
+        "https://www.mr-bricolage.bg/*",
+        "https://obuvki.bg/*",
+        "https://www.obuvki.bg/*",
+        "https://praktiker.bg/*",
+        "https://www.praktiker.bg/*",
+        "https://sopharmacy.bg/*",
+        "https://www.sopharmacy.bg/*",
+        "https://www.sportdepot.bg/*",
+        "https://sportdepot.bg/*",
+        "https://www.ebag.bg/*",
+        "https://ebag.bg/*"
       ]
     }
   ]

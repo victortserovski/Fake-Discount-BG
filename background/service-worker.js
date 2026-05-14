@@ -9,6 +9,11 @@ try {
 } catch (e) {
   console.error('[Fake Discount] Failed to load price-tracker.js:', e);
 }
+try {
+  importScripts('../utils/supabase-sync.js');
+} catch (e) {
+  console.error('[Fake Discount] Failed to load supabase-sync.js:', e);
+}
 
 // Storage manager with retry logic
 let storageManager = null;
@@ -258,11 +263,70 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   }
 });
 
-// Validate that an imported product has the minimum required shape.
+// Hosts the extension supports. Used to reject malicious imported URLs.
+const SUPPORTED_HOSTS = new Set([
+  'emag.bg', 'www.emag.bg',
+  'ozone.bg', 'www.ozone.bg',
+  'notino.bg', 'www.notino.bg',
+  'technopolis.bg', 'www.technopolis.bg',
+  'technomarket.bg', 'www.technomarket.bg',
+  'zora.bg', 'www.zora.bg',
+  'ardes.bg', 'www.ardes.bg',
+  'plesio.bg', 'www.plesio.bg',
+  'aboutyou.bg', 'www.aboutyou.bg',
+  'answear.bg', 'www.answear.bg',
+  'decathlon.bg', 'www.decathlon.bg',
+  'dm-drogeriemarkt.bg', 'www.dm-drogeriemarkt.bg',
+  'fashiondays.bg', 'www.fashiondays.bg',
+  'lillydrogerie.bg', 'www.lillydrogerie.bg',
+  'mr-bricolage.bg', 'www.mr-bricolage.bg',
+  'obuvki.bg', 'www.obuvki.bg',
+  'praktiker.bg', 'www.praktiker.bg',
+  'sopharmacy.bg', 'www.sopharmacy.bg',
+  'sportdepot.bg', 'www.sportdepot.bg',
+  'ebag.bg', 'www.ebag.bg'
+]);
+
+// Returns true iff the URL is an https:// link to one of the supported
+// store domains. Used to reject malicious or off-domain entries in
+// imported backup files — otherwise an attacker who tricks a user into
+// importing a crafted JSON could store arbitrary `product.url` values
+// that the popup would then open with `chrome.tabs.create`.
+function isSupportedProductUrl(url) {
+  if (typeof url !== 'string' || !url) return false;
+  try {
+    const u = new URL(url);
+    if (u.protocol !== 'https:') return false;
+    return SUPPORTED_HOSTS.has(u.hostname.toLowerCase());
+  } catch (_) {
+    return false;
+  }
+}
+
+// Returns true iff the thumbnail URL is a plain https:// link. We can't
+// restrict thumbnails to the store domain (most products serve images
+// from CDNs like cdn.ozone.bg, fdcdn.akamaized.net) so we only enforce
+// the scheme — no `javascript:`, `data:`, or `http:` URLs.
+function isSafeThumbnailUrl(url) {
+  if (typeof url !== 'string' || !url) return false;
+  try {
+    const u = new URL(url);
+    return u.protocol === 'https:';
+  } catch (_) {
+    return false;
+  }
+}
+
+// Validate that an imported product has the minimum required shape AND
+// that its URL belongs to a supported store domain.
 function isValidImportedProduct(productId, p) {
   if (typeof productId !== 'string' || !productId) return false;
   if (!p || typeof p !== 'object' || Array.isArray(p)) return false;
   if (!Array.isArray(p.history)) return false;
+  // Reject entries whose URL doesn't match a supported store. Protects
+  // against malicious backup files that could otherwise inject arbitrary
+  // navigation targets (popup opens product.url with chrome.tabs.create).
+  if (!isSupportedProductUrl(p.url)) return false;
   // At least one history row must be a valid {date, price} entry.
   return p.history.some(h =>
     h && typeof h === 'object' &&
@@ -287,10 +351,13 @@ function sanitizeImportedProduct(p) {
     }));
 
   return {
+    // URL has already passed `isSupportedProductUrl` in the validator.
     url: typeof p.url === 'string' ? p.url : '',
     title: typeof p.title === 'string' ? p.title : '',
-    site: p.site === 'emag' || p.site === 'ozone' ? p.site : 'emag',
-    thumbnail: typeof p.thumbnail === 'string' ? p.thumbnail : null,
+    site: ['emag','ozone','notino','technopolis','technomarket','zora','ardes','plesio','aboutyou','answear','decathlon','dm','fashiondays','lilly','bricolage','obuvki','praktiker','sopharmacy','sportdepot','ebag'].includes(p.site) ? p.site : 'emag',
+    // Thumbnails come from many merchant CDNs; we can only require https://.
+    thumbnail: isSafeThumbnailUrl(p.thumbnail) ? p.thumbnail : null,
+    ean: typeof p.ean === 'string' && /^\d{8,14}$/.test(p.ean) ? p.ean : null,
     history: history,
     firstSeen: typeof p.firstSeen === 'string' ? p.firstSeen : history[0]?.date || '',
     lastUpdated: typeof p.lastUpdated === 'string' ? p.lastUpdated : history[history.length - 1]?.date || '',
@@ -315,7 +382,28 @@ async function handleProductTracking(productData, sendResponse, sender) {
     const productId = productData.id;
 
     // Determine site from URL or productId
-    const site = productData.site || (productId.startsWith('emag_') ? 'emag' : 'ozone');
+    const site = productData.site || (
+      productId.startsWith('emag_') ? 'emag' :
+      productId.startsWith('notino_') ? 'notino' :
+      productId.startsWith('technopolis_') ? 'technopolis' :
+      productId.startsWith('technomarket_') ? 'technomarket' :
+      productId.startsWith('zora_') ? 'zora' :
+      productId.startsWith('ardes_') ? 'ardes' :
+      productId.startsWith('plesio_') ? 'plesio' :
+      productId.startsWith('aboutyou_') ? 'aboutyou' :
+      productId.startsWith('answear_') ? 'answear' :
+      productId.startsWith('decathlon_') ? 'decathlon' :
+      productId.startsWith('dm_') ? 'dm' :
+      productId.startsWith('fashiondays_') ? 'fashiondays' :
+      productId.startsWith('lilly_') ? 'lilly' :
+      productId.startsWith('bricolage_') ? 'bricolage' :
+      productId.startsWith('obuvki_') ? 'obuvki' :
+      productId.startsWith('praktiker_') ? 'praktiker' :
+      productId.startsWith('sopharmacy_') ? 'sopharmacy' :
+      productId.startsWith('sportdepot_') ? 'sportdepot' :
+      productId.startsWith('ebag_') ? 'ebag' :
+      'ozone'
+    );
 
     // Save/update product in storage - returns the updated product directly
     const product = await storageManager.saveProduct(productId, {
@@ -325,8 +413,31 @@ async function handleProductTracking(productData, sendResponse, sender) {
       originalPrice: productData.originalPrice,
       discount: productData.discount,
       site: site,
-      thumbnail: productData.thumbnail || null
+      thumbnail: productData.thumbnail || null,
+      ean: productData.ean || null
     });
+
+    // Best-effort write-through to Supabase. Fire-and-forget — never block
+    // local save or widget render on the network.
+    if (typeof SupabaseSync !== 'undefined' && SupabaseSync.isConfigured()) {
+      const latest = product.history && product.history.length > 0
+        ? product.history[product.history.length - 1]
+        : null;
+      if (latest) {
+        SupabaseSync.pushDatapoint({
+          productId,
+          site,
+          url: product.url,
+          title: product.title,
+          thumbnail: product.thumbnail,
+          ean: product.ean,
+          price: latest.price,
+          originalPrice: latest.originalPrice,
+          discount: latest.discount,
+          date: latest.date
+        });
+      }
+    }
 
     // Perform fake discount analysis
     const analysis = detectFakeDiscount({

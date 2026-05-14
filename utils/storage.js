@@ -185,6 +185,7 @@
           existing.url = productData.url || existing.url;
           existing.site = productData.site || existing.site || (productId.startsWith('emag_') ? 'emag' : 'ozone');
           existing.thumbnail = productData.thumbnail || existing.thumbnail;
+          existing.ean = productData.ean || existing.ean || null;
           existing.isActive = true;
 
           // Keep history sorted chronologically. No compression — full history
@@ -202,6 +203,7 @@
             title: productData.title,
             site: productData.site || (productId.startsWith('emag_') ? 'emag' : 'ozone'),
             thumbnail: productData.thumbnail || null,
+            ean: productData.ean || null,
             history: [{
               date: today,
               price: productData.price,
@@ -337,10 +339,17 @@
         await chrome.storage.local.set({ [INDEX_KEY]: [] });
       }
 
-      // Get today's date in YYYY-MM-DD format
+      // Get today's date in YYYY-MM-DD format using LOCAL time, not UTC.
+      // Previously this used toISOString() which is UTC-based; for users in
+      // UTC+N timezones (e.g. Sofia +03), visits between local midnight and
+      // 02:59 would silently land on the previous day's UTC date and
+      // overwrite the price entry there instead of starting a fresh one.
       getTodayDate() {
-        const today = new Date();
-        return today.toISOString().split('T')[0];
+        const d = new Date();
+        const yyyy = d.getFullYear();
+        const mm = String(d.getMonth() + 1).padStart(2, '0');
+        const dd = String(d.getDate()).padStart(2, '0');
+        return `${yyyy}-${mm}-${dd}`;
       }
 
       // Get product count - O(1) operation

@@ -77,7 +77,19 @@
           priceText = priceElement.textContent;
         }
       }
-      const price = ProductParser.parsePrice(priceText);
+      let price = ProductParser.parsePrice(priceText);
+
+      // Out-of-stock guard — same Notino/Ozone pattern. Emag marks
+      // unavailable products with a visible <span class="label
+      // label-out_of_stock">Изчерпана наличност</span> AND with JSON-LD
+      // `availability: "http://schema.org/OutOfStock"`. The DOM signal is
+      // the cheapest reliable read. When OOS, set price=null so
+      // ContentScriptBase.trackAndDisplay short-circuits into the empty-
+      // history branch instead of recording a phantom datapoint at a
+      // price the user can't actually buy at — see CLAUDE.md §6.
+      if (document.querySelector('.label-out_of_stock, [class*="label-out_of_stock"]')) {
+        price = null;
+      }
 
       // Extract original price (if discounted)
       const oldPriceSelectors = [
@@ -128,7 +140,8 @@
         originalPrice: originalPrice,
         discount: discount,
         site: 'emag',
-        thumbnail: thumbnail
+        thumbnail: thumbnail,
+        ean: ProductParser.extractEAN(document)
       };
     } catch (error) {
       console.error('[Fake Discount] Error extracting product data:', error);
@@ -138,6 +151,8 @@
 
   // Inject price graph widget - Emag specific insertion
   async function injectWidget(product, analysis) {
+    // Orphaned-script guard (see ContentScriptBase.isContextValid).
+    if (!ContentScriptBase.isContextValid()) return;
     // Check if widget should be shown
     const settings = await chrome.storage.local.get(['showWidget']);
     if (settings.showWidget === false) {
@@ -152,52 +167,33 @@
     // Create widget container using shared utility
     const widgetContainer = ContentScriptBase.createWidgetContainer();
 
+    // UNIVERSAL EMAG PLACEMENT: every Emag product page wraps the buy
+    // area in a single `<section class="page-section page-section-light">`,
+    // and the next sibling is always the start of the secondary content —
+    // could be alternative offers, ad slot, recommendation carousel, or
+    // description, depending on the product. Inserting the widget right
+    // after that buy section therefore lands it just below the buy area
+    // and just above whatever comes next, on every page, without us
+    // having to know which optional sub-sections are present.
+    //
+    // Verified against the html samples in `emag html pages/` — both the
+    // multi-seller phone page (S25 FE) and the single-seller trailer page
+    // (Vivatechnix) have form.main-product-form inside a page-section, with
+    // distinct but consistent next-sibling sections after it.
     let inserted = false;
-
-    // Emag-specific insertion points
-    const mainProductForm = document.querySelector('form.main-product-form');
-    if (mainProductForm && mainProductForm.parentNode) {
-      mainProductForm.parentNode.insertBefore(widgetContainer, mainProductForm.nextSibling);
+    const form = document.querySelector('form.main-product-form');
+    const buyAreaSection = form ? form.closest('section') : null;
+    if (buyAreaSection && buyAreaSection.parentNode) {
+      buyAreaSection.parentNode.insertBefore(widgetContainer, buyAreaSection.nextSibling);
       inserted = true;
     }
 
+    // Last-resort fallback if Emag ever ships a layout where the form
+    // isn't inside a section: append to <main> (or <body>) so the widget
+    // still renders somewhere visible.
     if (!inserted) {
-      const pricingSection = document.querySelector('.product-page-pricing');
-      if (pricingSection) {
-        const highlightBox = pricingSection.closest('.highlight-box');
-        if (highlightBox && highlightBox.parentNode) {
-          highlightBox.parentNode.insertBefore(widgetContainer, highlightBox.nextSibling);
-          inserted = true;
-        }
-      }
-    }
-
-    if (!inserted) {
-      const formColumn = document.querySelector('.col-md-6:has(form.main-product-form), .col-lg-6:has(form.main-product-form)');
-      if (formColumn) {
-        formColumn.appendChild(widgetContainer);
-        inserted = true;
-      }
-    }
-
-    if (!inserted) {
-      const priceElement = document.querySelector('.product-new-price[data-test="main-price"]');
-      if (priceElement) {
-        let container = priceElement;
-        for (let i = 0; i < 10; i++) {
-          container = container.parentElement;
-          if (container && container.className && container.className.includes('col-')) {
-            container.appendChild(widgetContainer);
-            inserted = true;
-            break;
-          }
-        }
-      }
-    }
-
-    if (!inserted) {
-      const fallbackContainer = document.querySelector('main, .container') || document.body;
-      fallbackContainer.appendChild(widgetContainer);
+      const fallback = document.querySelector('main') || document.body;
+      fallback.appendChild(widgetContainer);
     }
 
     // Load widget using shared utilities

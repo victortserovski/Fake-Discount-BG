@@ -24,6 +24,7 @@
     "FAKE_DISCOUNT": "FAKE DISCOUNT",
     "REAL_DEAL": "REAL DEAL",
     "STABLE_PRICE": "STABLE PRICE",
+    "VOLATILE_PRICE": "VOLATILE PRICE",
     "TRACKING": "TRACKING"
   },
   "stats": {
@@ -42,15 +43,16 @@
     "noChanges": "No changes"
   },
   "reasons": {
-    "priceHigherThanMax": "The 'original' price is {percentage}% above the real historical maximum — the discount is inflated.",
-    "priceHigherThanAverage": "The 'original' price is {percentage}% above the average price for the period.",
-    "priceHigherThan30DayLow": "Current price is {percentage}% higher than the 30-day minimum — it was cheaper recently.",
+    "priceHigherThanMax": "The claimed \"original\" price ({originalPrice}) is {percentage}% higher than the highest price we've observed ({maxPrice}) across {observations} observations ({days} days of tracking) — the discount may be misleading.",
+    "priceHigherThanAverage": "The \"original\" price is {percentage}% above the average price for the period.",
+    "priceHigherThan30DayLow": "Current price ({currentPrice}) is {percentage}% above the lowest price in the last 30 days ({minPrice}) based on {observations} observations.",
     "priceRecentlyIncreased": "The price was raised shortly before the announced discount.",
     "legitimateDiscount": "The discount matches historical price patterns.",
-    "belowAverage": "Current price is {percentage}% below average — a good opportunity.",
-    "atAllTimeLow": "Price is at (or near) the all-time low — a rare deal.",
-    "stablePrice": "Price has barely moved over the last 30 days.",
-    "insufficientData": "Need at least {needed} days of history for a final verdict ({current}/{needed} so far)."
+    "belowAverage": "Current price ({currentPrice}) is {percentage}% below the average ({avgPrice}) across {observations} observations ({days} days of tracking).",
+    "atAllTimeLow": "Current price ({currentPrice}) is at or near the lowest we've observed ({minPrice}) across {observations} observations ({days} days of tracking) — a genuinely good offer.",
+    "stablePrice": "Price has remained stable through the last 30 days based on {observations} observations.",
+    "volatilePrice": "Price has varied by {percentage}% across {observations} observations ({days} days of tracking) — it may be worth waiting for a better offer.",
+    "insufficientData": "At least {needed} days of history needed for a reliable verdict ({current}/{needed} available so far)."
   },
   "settings": {
     "title": "Settings",
@@ -59,9 +61,45 @@
     "english": "English",
     "enableEmag": "Track prices on Emag.bg",
     "enableOzone": "Track prices on Ozone.bg",
+    "enableNotino": "Track prices on Notino.bg",
+    "enableTechnopolis": "Track prices on Technopolis.bg",
+    "enableTechnomarket": "Track prices on Technomarket.bg",
+    "enableZora": "Track prices on Zora.bg",
+    "enableArdes": "Track prices on Ardes.bg",
+    "enablePlesio": "Track prices on Plesio.bg",
+    "enableAboutyou": "Track prices on Aboutyou.bg",
+    "enableAnswear": "Track prices on Answear.bg",
+    "enableDecathlon": "Track prices on Decathlon.bg",
+    "enableDm": "Track prices on dm-drogeriemarkt.bg",
+    "enableFashiondays": "Track prices on Fashiondays.bg",
+    "enableLilly": "Track prices on Lillydrogerie.bg",
+    "enableBricolage": "Track prices on Mr-bricolage.bg",
+    "enableObuvki": "Track prices on Obuvki.bg",
+    "enablePraktiker": "Track prices on Praktiker.bg",
+    "enableSopharmacy": "Track prices on Sopharmacy.bg",
+    "enableSportdepot": "Track prices on Sportdepot.bg",
+    "enableEbag": "Track prices on eBag.bg",
     "showWidget": "Show chart on product pages",
     "enableEmagDesc": "Records price history every time you open a product on Emag.bg.",
     "enableOzoneDesc": "Records price history every time you open a product on Ozone.bg.",
+    "enableNotinoDesc": "Records price history every time you open a product on Notino.bg.",
+    "enableTechnopolisDesc": "Records price history every time you open a product on Technopolis.bg.",
+    "enableTechnomarketDesc": "Records price history every time you open a product on Technomarket.bg.",
+    "enableZoraDesc": "Records price history every time you open a product on Zora.bg.",
+    "enableArdesDesc": "Records price history every time you open a product on Ardes.bg.",
+    "enablePlesioDesc": "Records price history every time you open a product on Plesio.bg.",
+    "enableAboutyouDesc": "Records price history every time you open a product on Aboutyou.bg.",
+    "enableAnswearDesc": "Records price history every time you open a product on Answear.bg.",
+    "enableDecathlonDesc": "Records price history every time you open a product on Decathlon.bg.",
+    "enableDmDesc": "Records price history every time you open a product on dm-drogeriemarkt.bg.",
+    "enableFashiondaysDesc": "Records price history every time you open a product on Fashiondays.bg.",
+    "enableLillyDesc": "Records price history every time you open a product on Lillydrogerie.bg.",
+    "enableBricolageDesc": "Records price history every time you open a product on Mr-bricolage.bg.",
+    "enableObuvkiDesc": "Records price history every time you open a product on Obuvki.bg.",
+    "enablePraktikerDesc": "Records price history every time you open a product on Praktiker.bg.",
+    "enableSopharmacyDesc": "Records price history every time you open a product on Sopharmacy.bg.",
+    "enableSportdepotDesc": "Records price history every time you open a product on Sportdepot.bg.",
+    "enableEbagDesc": "Records price history every time you open a product on eBag.bg.",
     "showWidgetDesc": "Displays the chart directly on the product page. When off, prices are still tracked silently in the background — the chart just won't appear.",
     "trackedProducts": "Tracked products",
     "followedProducts": "Followed Products",
@@ -82,6 +120,46 @@
     "label": "Target:",
     "set": "Set",
     "reached": "Target reached!"
+  },
+  "tabs": {
+    "products": "Products",
+    "settings": "Settings",
+    "data": "Data"
+  },
+  "search": {
+    "placeholder": "Search by name or EAN…",
+    "noResults": "No products match the active filters"
+  },
+  "sort": {
+    "label": "Sort:",
+    "recent": "Last updated",
+    "priceAsc": "Price ↑",
+    "priceDesc": "Price ↓",
+    "targetsFirst": "Targets first"
+  },
+  "footer": {
+    "summary": "{count} products · {percentage} used"
+  },
+  "openFullView": "Open in full tab",
+  "about": {
+    "title": "About",
+    "contact": "Have a suggestion or found a bug? Email me at:",
+    "shortcut": "Open this popup with",
+    "shortcutCustomize": "You can change the keyboard shortcut at chrome://extensions/shortcuts"
+  },
+  "ean": {
+    "copyHint": "Click to copy",
+    "copied": "Copied!"
+  },
+  "lastSeen": {
+    "today": "updated today",
+    "yesterday": "updated yesterday",
+    "daysAgo": "updated {n} days ago"
+  },
+  "trend": {
+    "higher": "higher",
+    "lower": "lower",
+    "same": "same"
   },
   "errors": {
     "deleteFailed": "Error deleting product",

@@ -177,10 +177,58 @@
       const verdict = analysis.verdict || 'STABLE_PRICE';
       const verdictClass = verdict === 'FAKE_DISCOUNT' ? 'fake' :
                           verdict === 'REAL_DEAL' ? 'real' :
-                          verdict === 'STABLE_PRICE' ? 'stable' : 'neutral';
+                          verdict === 'STABLE_PRICE' ? 'stable' :
+                          verdict === 'VOLATILE_PRICE' ? 'volatile' : 'neutral';
       const verdictText = t(`verdicts.${verdict}`) || verdict;
-      const site = product.site || (product.url?.includes('emag.bg') ? 'emag' : 'ozone');
-      const siteName = site === 'emag' ? 'eMAG.bg' : 'Ozone.bg';
+      // URL-fallback site detection — order matters: longer/more-specific
+      // hostnames first so e.g. `technomarket.bg` doesn't accidentally match
+      // a substring inside another URL. `product.site` from the adapter is
+      // always preferred when present.
+      const site = product.site || (
+        product.url?.includes('technomarket.bg') ? 'technomarket' :
+        product.url?.includes('technopolis.bg') ? 'technopolis' :
+        product.url?.includes('emag.bg') ? 'emag' :
+        product.url?.includes('notino.bg') ? 'notino' :
+        product.url?.includes('zora.bg') ? 'zora' :
+        product.url?.includes('ardes.bg') ? 'ardes' :
+        product.url?.includes('plesio.bg') ? 'plesio' :
+        product.url?.includes('aboutyou.bg') ? 'aboutyou' :
+        product.url?.includes('answear.bg') ? 'answear' :
+        product.url?.includes('decathlon.bg') ? 'decathlon' :
+        product.url?.includes('dm-drogeriemarkt.bg') ? 'dm' :
+        product.url?.includes('fashiondays.bg') ? 'fashiondays' :
+        product.url?.includes('lillydrogerie.bg') ? 'lilly' :
+        product.url?.includes('mr-bricolage.bg') ? 'bricolage' :
+        product.url?.includes('obuvki.bg') ? 'obuvki' :
+        product.url?.includes('praktiker.bg') ? 'praktiker' :
+        product.url?.includes('sopharmacy.bg') ? 'sopharmacy' :
+        product.url?.includes('sportdepot.bg') ? 'sportdepot' :
+        product.url?.includes('ebag.bg') ? 'ebag' :
+        'ozone'
+      );
+      const SITE_NAMES = {
+        emag: 'eMAG.bg',
+        ozone: 'Ozone.bg',
+        notino: 'Notino.bg',
+        technopolis: 'Technopolis.bg',
+        technomarket: 'Technomarket.bg',
+        zora: 'Zora.bg',
+        ardes: 'Ardes.bg',
+        plesio: 'Plesio.bg',
+        aboutyou: 'Aboutyou.bg',
+        answear: 'Answear.bg',
+        decathlon: 'Decathlon.bg',
+        dm: 'dm-drogeriemarkt.bg',
+        fashiondays: 'Fashiondays.bg',
+        lilly: 'Lillydrogerie.bg',
+        bricolage: 'Mr-bricolage.bg',
+        obuvki: 'Obuvki.bg',
+        praktiker: 'Praktiker.bg',
+        sopharmacy: 'Sopharmacy.bg',
+        sportdepot: 'Sportdepot.bg',
+        ebag: 'eBag.bg'
+      };
+      const siteName = SITE_NAMES[site] || 'Ozone.bg';
       const stats = analysis.stats || {};
       const allTimeLow = stats.allTimeLow ?? (product.history && product.history.length > 0 ? Math.min(...product.history.map(h => h.price)) : 0);
       const allTimeHigh = stats.allTimeHigh ?? (product.history && product.history.length > 0 ? Math.max(...product.history.map(h => h.price)) : 0);
@@ -478,6 +526,10 @@
         lineColor = '#10B981';
       } else if (verdict === 'STABLE_PRICE') {
         lineColor = '#F59E0B';
+      } else if (verdict === 'VOLATILE_PRICE') {
+        // Distinct from stable yellow and fake-discount red — sits between
+        // them visually because volatility is a "neither buy nor avoid" state.
+        lineColor = '#F97316';
       }
 
       if (chartContainer.clientWidth === 0) {

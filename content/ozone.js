@@ -52,13 +52,41 @@
       }
       const title = titleElement ? titleElement.textContent.trim() : '';
 
-      // Extract current price - Ozone.bg specific selectors
+      // Extract current price - Ozone.bg specific selectors.
+      //
+      // Cascade order: ALL main-product-scoped selectors first (special →
+      // prefix-id → regular → generic), THEN unscoped fallbacks last. This
+      // is critical because Ozone pages typically render upsell products
+      // below the buy area, and those upsells have their own `.special-price`
+      // / `[id^="product-price-"]` / `.price-box` elements. An unscoped
+      // selector reaching the upsell rail before the scoped main-product
+      // selector would record the upsell's price, not the main product's.
+      //
+      // Bug history:
+      //   - /product/ps5-reanimal/ recorded 30.00 EUR (an upsell's whole-unit
+      //     id-based price) while the page showed 29.99 EUR until the prefix-id
+      //     selector got scoped to .product-essential / #product_addtocart_form.
+      //   - /product/xtrike-gm-515/ recorded 99.99 EUR (the FIRST upsell's
+      //     special-price) while the main product was 11.24 EUR — until the
+      //     unscoped `.price-box .special-price .price` got moved to the
+      //     bottom of the cascade. Don't reintroduce unscoped selectors high
+      //     in the priority list.
       const priceSelectors = [
-        '[id^="product-price-"]',
+        // Phase 1 — main-product-scoped (highest confidence)
+        '.product-essential .price-box .special-price .price',
+        '#product_addtocart_form .price-box .special-price .price',
+        '.product-view-main .price-box .special-price .price',
+        '#product_addtocart_form [id^="product-price-"]',
+        '.product-essential [id^="product-price-"]',
+        '.product-view-main [id^="product-price-"]',
+        '.product-essential .price-box .regular-price .price',
+        '.product-essential .price',
+        // Phase 2 — unscoped last-resort fallbacks. Only fire when phase 1
+        // fully misses, e.g. a future Ozone layout that drops the standard
+        // scoping classes. Risky on pages with upsell rails — see comment.
         '.price-box .special-price .price',
         '.price-box .regular-price .price',
         '.price-box .price',
-        '.product-essential .price',
         '.special-price .price',
         '.regular-price .price'
       ];
@@ -67,14 +95,36 @@
       let priceText = '';
       let price = null;
 
+      // Selectors at the bottom of the cascade are unscoped (`.price-box
+      // .special-price .price`, etc.). On a normal Ozone layout the
+      // scoped phase 1 selectors win and never reach phase 2 — but if the
+      // page hits a transient state where the main-product wrapper class
+      // is missing (A/B test, partial render, future redesign), an
+      // unscoped selector's `querySelector` returns the FIRST match in
+      // document order, which is the first upsell in the rail below
+      // the main product. That's exactly how /product/xtrike-gm-515/
+      // recorded a phantom 99.99 EUR price (the first upsell's
+      // `.special-price .price` text "99,99 €") in May 2026 even after
+      // the original scoping fix landed. Defence-in-depth: per selector,
+      // walk querySelectorAll's matches and skip any element nested in
+      // an upsell / related / cross-sell rail — guarantees we never
+      // record an upsell price even when the scoped selectors miss.
+      const UPSELL_BLOCK_SELECTOR = '.upsell-products, .upsell, .related-products, .crosssell, .cross-sell, [id*="upsell"]';
+
       for (const selector of priceSelectors) {
-        priceElement = document.querySelector(selector);
-        if (priceElement) {
-          priceText = priceElement.textContent.trim();
-          price = ProductParser.parsePrice(priceText);
-          if (price && price > 0) break;
-          priceElement = null;
+        const candidates = document.querySelectorAll(selector);
+        for (const el of candidates) {
+          if (el.closest(UPSELL_BLOCK_SELECTOR)) continue;
+          const text = el.textContent.trim();
+          const parsed = ProductParser.parsePrice(text);
+          if (parsed && parsed > 0) {
+            priceElement = el;
+            priceText = text;
+            price = parsed;
+            break;
+          }
         }
+        if (price) break;
       }
 
       // Fallback: find price by pattern in main product area only
@@ -100,7 +150,17 @@
         }
       }
 
-      // Extract original price (if discounted) - Ozone.bg specific
+      // Extract original price (if discounted) - Ozone.bg specific.
+      //
+      // CRITICAL: Ozone's `.old-price` wrapper carries a "ПЦД:" label
+      // (Препоръчителна цена на дребно — manufacturer's recommended retail
+      // price, i.e. RRP/MSRP). It is NOT a "previous selling price." Treating
+      // it as `originalPrice` makes the FAKE_DISCOUNT detector fire on
+      // products that never sold above the displayed price, comparing against
+      // a manufacturer's claim rather than seller behaviour. Skip any old-price
+      // wrapper that contains the ПЦД label; if Ozone ever ships a real
+      // struck-through "was X" price (no ПЦД label), the loop will still
+      // capture it.
       const oldPriceSelectors = [
         '.price-box .old-price .price',
         '.price-box .old-price',
@@ -113,18 +173,40 @@
       let originalPriceElement = null;
       let originalPriceText = '';
       for (const selector of oldPriceSelectors) {
-        originalPriceElement = document.querySelector(selector);
-        if (originalPriceElement) {
-          originalPriceText = originalPriceElement.textContent.trim();
-          if (originalPriceText) break;
-        }
+        const el = document.querySelector(selector);
+        if (!el) continue;
+        const wrapper = el.closest('.old-price') || el;
+        // Skip RRP-labeled wrappers — that's not a previous selling price.
+        if (/ПЦД/.test(wrapper.textContent)) continue;
+        originalPriceElement = el;
+        originalPriceText = el.textContent.trim();
+        if (originalPriceText) break;
       }
 
       const originalPrice = ProductParser.parsePrice(originalPriceText);
       const discount = originalPrice ? ProductParser.calculateDiscount(originalPrice, price) : null;
 
-      // Extract thumbnail
+      // Out-of-stock guard — same Notino pattern. Ozone marks unavailable
+      // products with a visible `<p class="availability out-of-stock">
+      // Изчерпан</p>` and the JSON-LD shows `availability: "OutOfStock"`.
+      // The DOM signal is the cheaper of the two to read. When OOS, set
+      // price=null so ContentScriptBase.trackAndDisplay skips creating a
+      // phantom datapoint at a price the user can't actually buy at —
+      // recording it would understate min/max and break verdicts on
+      // restock. Existing history is preserved (we just don't add today's
+      // visit); the widget renders empty stats per the existing no-history
+      // branch in trackAndDisplay.
+      const oosEl = document.querySelector('p.availability.out-of-stock, .availability.out-of-stock');
+      if (oosEl) {
+        price = null;
+      }
+
+      // Extract thumbnail. Ozone runs on Magento and exposes the product
+      // image inside `.gallery-main-images` / `.gallery-box` — the older
+      // selectors below it never matched a real Ozone product page.
       const thumbnailSelectors = [
+        '.gallery-main-images img',
+        '.gallery-box img',
         '.product-image img',
         '.product-gallery img',
         '[data-image] img',
@@ -140,6 +222,13 @@
           break;
         }
       }
+      // Final fallback: the <link rel="preload" as="image"> tag Ozone emits
+      // for the first product image (present even when the gallery hasn't
+      // hydrated yet).
+      if (!thumbnail) {
+        const preload = document.querySelector('link[rel="preload"][as="image"][href*="/catalog/product/"]');
+        if (preload && preload.href) thumbnail = preload.href;
+      }
 
       return {
         id: productId,
@@ -149,7 +238,8 @@
         originalPrice: originalPrice,
         discount: discount,
         site: 'ozone',
-        thumbnail: thumbnail
+        thumbnail: thumbnail,
+        ean: ProductParser.extractEAN(document)
       };
     } catch (error) {
       console.error('[Fake Discount] Error extracting product data:', error);
@@ -159,6 +249,8 @@
 
   // Inject price graph widget - Ozone specific insertion
   async function injectWidget(product, analysis) {
+    // Orphaned-script guard (see ContentScriptBase.isContextValid).
+    if (!ContentScriptBase.isContextValid()) return;
     // Check if widget should be shown
     const settings = await chrome.storage.local.get(['showWidget']);
     if (settings.showWidget === false) {

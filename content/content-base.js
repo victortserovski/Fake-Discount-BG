@@ -2,6 +2,20 @@
 // Runs in content script isolated world - bypasses host page CSP
 
 const ContentScriptBase = {
+    // Returns true while this content script can still talk to the extension.
+    // Becomes false after the extension is reloaded/updated/disabled while
+    // the page is open — at that point the script is "orphaned" in the page's
+    // memory and any chrome.* call rejects with "Extension context invalidated".
+    // Guarding our entry points lets the orphaned script silently give up
+    // instead of throwing uncaught promise rejections into the dev console.
+    isContextValid() {
+        try {
+            return !!(chrome && chrome.runtime && chrome.runtime.id);
+        } catch (_) {
+            return false;
+        }
+    },
+
     // Show error in widget container
     showWidgetError(container) {
         while (container.firstChild) {
@@ -50,6 +64,7 @@ const ContentScriptBase = {
 
     // Load widget CSS
     loadWidgetCSS() {
+        if (!this.isContextValid()) return;
         if (!document.querySelector('link[href*="price-graph-widget.css"]')) {
             const link = document.createElement('link');
             link.rel = 'stylesheet';
@@ -60,6 +75,7 @@ const ContentScriptBase = {
 
     // Send product data and get analysis
     async trackProduct(productData) {
+        if (!this.isContextValid()) return { success: false };
         return new Promise((resolve) => {
             chrome.runtime.sendMessage(
                 {
@@ -79,20 +95,36 @@ const ContentScriptBase = {
 
     // Generic track and display flow
     async trackAndDisplay(extractProductData, injectWidget, isProductPage) {
+        // Bail out if the extension was reloaded while this page was open —
+        // any chrome.* call from this orphaned script would otherwise reject
+        // with "Extension context invalidated".
+        if (!this.isContextValid()) return;
+
         const productData = await extractProductData();
+
+        // Empty-state analysis used when there is no usable price (e.g. an
+        // out-of-stock variant) or the background failed to record. Mirrors
+        // what detectFakeDiscount() returns for an empty history so the
+        // widget renders the TRACKING verdict (gray) with a properly-
+        // substituted reason line, not a misleading yellow STABLE_PRICE
+        // and the literal `{needed}` / `{current}` placeholders.
+        const emptyAnalysis = {
+            result: 'tracking',
+            verdict: 'TRACKING',
+            confidence: 0,
+            reasonKey: 'insufficientData',
+            reasonParams: { current: 0, needed: 7 }
+        };
 
         if (!productData || !productData.price) {
             await injectWidget(
                 {
                     history: [],
                     title: 'Unknown Product',
-                    url: window.location.href
+                    url: window.location.href,
+                    site: productData && productData.site ? productData.site : undefined
                 },
-                {
-                    result: 'neutral',
-                    confidence: 0,
-                    reasonKey: 'insufficientData'
-                }
+                emptyAnalysis
             );
             return;
         }
@@ -102,10 +134,10 @@ const ContentScriptBase = {
             if (response && response.success) {
                 await injectWidget(response.product, response.analysis);
             } else {
-                await injectWidget({ history: [] }, { result: 'neutral', confidence: 0 });
+                await injectWidget({ history: [], site: productData.site }, emptyAnalysis);
             }
         } catch (error) {
-            await injectWidget({ history: [] }, { result: 'neutral', confidence: 0 });
+            await injectWidget({ history: [], site: productData.site }, emptyAnalysis);
         }
     },
 
