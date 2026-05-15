@@ -155,34 +155,25 @@
     widgetContainer.style.isolation = 'isolate';
 
     let inserted = false;
-    // dm is a heavy SPA. The live DOM uses `data-dmid="..."` attributes
-    // but exact values are hard to predict — try several common
-    // patterns including substring matches (`*=`) before falling
-    // back to wildcard class names. Priority: description block
-    // (right under the hero) → tabs section → recommendation rails.
+    // Verified against live HTML samples: dm's product detail page
+    // renders in document order as
+    //   detail-page-headline-product-title → buybox → availability →
+    //   detail-image-container → detail-top-right-container →
+    //   description-group (with localized accordion items like
+    //   "Продуктово описание-container") → bottom-detail-page-reco-slider
+    //   → product-slider-wrapper → feedback-box → footer.
+    // The cleanest anchor is BEFORE the bottom recommendation slider —
+    // that puts the widget at the boundary between the product detail
+    // section (image + buy + description + accordion) and the
+    // "people also bought" / related-products carousel. Full-width.
     const anchors = [
-      // Right under hero — description / info
-      '[data-dmid="product-description"]',
-      '[data-dmid="pdp-description"]',
-      '[data-dmid*="description"]',
-      '[data-dmid*="product-info"]',
-      '[data-dmid*="ProductInfo"]',
-      '[class*="ProductDescription"]',
-      '[class*="ProductInfo"]:not([class*="Card"])',
-      // Mid-page — tabs
-      '[data-dmid="product-detail-tabs"]',
-      '[data-dmid*="tabs"]',
-      '[data-dmid*="Tabs"]',
-      '[class*="ProductTabs"]',
-      '[class*="PdpTabs"]',
-      // Lower — recommendations
-      '[data-dmid="product-recommendation"]',
-      '[data-dmid*="recommend"]',
-      '[data-dmid*="related"]',
-      '[data-dmid*="similar"]',
-      '[class*="ProductRecommendation"]',
-      '[class*="RelatedProducts"]',
-      '[class*="SimilarProducts"]'
+      '[data-dmid="bottom-detail-page-reco-slider"]',
+      '[data-dmid="product-slider-wrapper"]',
+      '[data-dmid*="reco-slider"]',
+      '[data-dmid*="product-slider"]',
+      // Fallback: insert below the accordion content (still full-width)
+      '[data-dmid="description-group"]',
+      '[data-dmid*="description-group"]'
     ];
     for (const sel of anchors) {
       const el = document.querySelector(sel);

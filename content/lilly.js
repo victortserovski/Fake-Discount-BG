@@ -107,19 +107,20 @@
     widgetContainer.style.padding = '0 15px';
 
     let inserted = false;
-    // Anchor BEFORE the description block (full-width section just
-    // below the hero on Lilly's PDP). Putting the widget before
-    // .related-products-field pushed it down past the spec/review
-    // sections; .description is much higher in document order.
+    // Verified against live HTML: Lilly's PDP renders the
+    // related-products carousel BEFORE the description block in
+    // document order (.product-info-main → H1 → #related-products-field
+    // → #description → .additional-attributes). So anchoring before
+    // `.description` actually places the widget AFTER the recommendation
+    // rail — which is exactly the "way too low" position the user saw.
+    // Anchor BEFORE `#related-products-field` instead: that places it
+    // directly under the hero (.product-info-main).
     const anchors = [
-      '.description',
-      '.product.attribute.description',
-      '.product.attribute.overview',
-      '.product.info.detailed',
-      '.product-info-tabs',
+      '#related-products-field',
       '.related-products-field',
       '.stenik-recommended-products',
-      '.additional-attributes-wrapper'
+      '#description',
+      '.description'
     ];
     for (const sel of anchors) {
       const el = document.querySelector(sel);

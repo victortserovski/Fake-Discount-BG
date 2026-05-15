@@ -101,37 +101,31 @@
     widgetContainer.style.padding = '0 15px';
 
     let inserted = false;
-    // eBag is a heavy React SPA built on the SAP-Hybris template (same
-    // family as Mr.Bricolage). Try high-priority anchors near the
-    // product hero FIRST so the widget lands close to the price,
-    // not at the bottom of the page. The previous `#pdpTabs`-first
-    // ordering put the widget below the description / reviews tabs,
-    // which on a long product page is far down.
-    const anchors = [
-      // Closest to the hero — info/description area right below price
-      '.initialDescription',
-      '[class*="initialDescription"]',
-      '[class*="ProductSummary"]',
-      '[class*="product-summary"]',
-      '[class*="ProductInfo"]:not([class*="Card"])',
-      '[class*="product-info"]:not([class*="card"])',
-      // Mid-page — spec / detail tabs (still better than bottom)
-      '#pdpTabs',
-      '.brico-tabs',
-      '[class*="ProductDescription"]',
-      '[class*="ProductTabs"]',
-      // Last resort — recommendation rails
-      '.ProductRecommendedSlot',
-      '.ProductRelatedSlot',
-      '[class*="Recommendation"]',
-      '[class*="RelatedProduct"]'
-    ];
-    for (const sel of anchors) {
-      const el = document.querySelector(sel);
-      if (el && el.parentNode) {
-        el.parentNode.insertBefore(widgetContainer, el);
+    // Verified against live HTML: eBag is a Tailwind + Headless-UI
+    // React SPA with NO semantic class names (no `#pdpTabs`, no
+    // `.ProductDescription` — those classes are inherited from a
+    // different platform). The only stable hooks are
+    // `[data-page-name="productPage"]` and `[data-product-id]` on the
+    // main product card. Strategy: walk up from H1 to find the direct
+    // child of the page-root that wraps the main product card row,
+    // then insert the widget as its next sibling. That places it
+    // immediately under the entire product row, full-width, above
+    // everything else on the page.
+    const pageRoot = document.querySelector('[data-page-name="productPage"]') || document.querySelector('#store-root');
+    const h1 = document.querySelector('h1');
+    if (pageRoot && h1) {
+      // Walk up from H1 until we find an ancestor that is a direct
+      // child of pageRoot.
+      let target = h1;
+      while (target.parentElement && target.parentElement !== pageRoot) {
+        target = target.parentElement;
+      }
+      if (target.parentElement === pageRoot && target.nextSibling) {
+        pageRoot.insertBefore(widgetContainer, target.nextSibling);
         inserted = true;
-        break;
+      } else if (target.parentElement === pageRoot) {
+        pageRoot.appendChild(widgetContainer);
+        inserted = true;
       }
     }
     if (!inserted) {
