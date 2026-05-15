@@ -17,7 +17,7 @@ A Chrome/Edge extension that detects fake discounts on 20 Bulgarian e-commerce s
 - **Clickable Product List**: Click any product in the popup to open its page; price range (low-high) shown per product
 - **Bilingual Support**: Bulgarian (default) and English, with localized date formatting in the chart
 - **Export/Import**: Back up and restore your price history data as JSON (validated and sanitized on import)
-- **EAN/GTIN tracking**: When a product's barcode is exposed (always on Notino, sometimes on Emag/Ozone), it's stored alongside the price history for future cross-site price matching. Click an EAN in the popup to copy it to the clipboard.
+- **EAN/GTIN tracking**: When a product's barcode is exposed it's stored alongside the price history for future cross-site price matching. Click an EAN in the popup to copy it to the clipboard. Coverage by site (based on a full audit of saved samples): consistent — **Notino, Obuvki, Zora, dm-drogeriemarkt**; occasional — **Praktiker, Mr.Bricolage** (barcode appears in the product description text on some products); none exposed in saved samples — Emag, Ozone, Ardes, Plesio, Technopolis, Technomarket, Aboutyou, Answear, Decathlon, Fashion Days, Lillydrogerie, Sopharmacy, Sportdepot, eBag.
 - **Last-seen indicator**: Each product card shows when it was last refreshed ("updated today / yesterday / N days ago") so stale entries are easy to spot
 - **Keyboard shortcut**: Press `Ctrl+Shift+F` (or `⌘+Shift+F` on Mac) to open the popup. Customisable at `chrome://extensions/shortcuts`
 - **Persisted filters**: Site-filter chips and sort selection survive popup close/reopen (the search box is intentionally cleared each time)
