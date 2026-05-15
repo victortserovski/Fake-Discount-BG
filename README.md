@@ -1,4 +1,6 @@
-# Fake Discount BG — Chrome Extension
+# Fake Discount Bulgaria — Catching Retailers Faking Sales
+
+> Chrome / Edge extension
 
 A Chrome/Edge extension that detects fake discounts on 20 Bulgarian e-commerce sites (Emag.bg, Ozone.bg, Notino.bg, Technopolis.bg, Technomarket.bg, Zora.bg, Ardes.bg, Plesio.bg, Aboutyou.bg, Answear.bg, Decathlon.bg, dm-drogeriemarkt.bg, Fashiondays.bg, Lillydrogerie.bg, Mr-bricolage.bg, Obuvki.bg, Praktiker.bg, Sopharmacy.bg, Sportdepot.bg, eBag.bg) by automatically tracking price history and displaying integrated price graphs on product pages.
 

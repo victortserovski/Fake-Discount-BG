@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
-  "name": "Fake Discount BG",
-  "version": "3.15.3",
+  "name": "Fake Discount Bulgaria - Catching Retailers Faking Sales",
+  "version": "3.15.4",
   "description": "Spot fake discounts on Bulgarian shops with local price history, charts, targets, and deal verdicts.",
   "permissions": [
     "storage",
@@ -360,7 +360,7 @@
         "default": "Ctrl+Shift+F",
         "mac": "Command+Shift+F"
       },
-      "description": "Open Fake Discount BG popup"
+      "description": "Open Fake Discount Bulgaria popup"
     }
   },
   "icons": {

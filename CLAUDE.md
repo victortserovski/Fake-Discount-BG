@@ -68,7 +68,7 @@ Strong success criteria let you loop independently. Weak criteria ("make it work
 
 # Project-specific rules
 
-The sections above are general behavioral guidelines. The rules below are specific to this project (Fake Discount BG Chrome extension for 19 Bulgarian e-commerce sites: Emag, Ozone, Notino, Technopolis, Technomarket, Zora, Ardes, Plesio, Aboutyou, Answear, Decathlon, dm-drogeriemarkt, Fashiondays, Lillydrogerie, Mr-bricolage, Obuvki, Praktiker, Sopharmacy, Sportdepot).
+The sections above are general behavioral guidelines. The rules below are specific to this project (the "Fake Discount Bulgaria — Catching Retailers Faking Sales" Chrome extension, for 20 Bulgarian e-commerce sites: Emag, Ozone, Notino, Technopolis, Technomarket, Zora, Ardes, Plesio, Aboutyou, Answear, Decathlon, dm-drogeriemarkt, Fashiondays, Lillydrogerie, Mr-bricolage, Obuvki, Praktiker, Sopharmacy, Sportdepot, eBag).
 
 ## 5. Version bumping (mandatory)
 

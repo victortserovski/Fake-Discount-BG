@@ -279,7 +279,7 @@
   function updateAboutSection() {
     document.getElementById('about-title').textContent = t('about.title');
 
-    document.getElementById('about-version').textContent = `Fake Discount BG · v${VERSION}`;
+    document.getElementById('about-version').textContent = `Fake Discount Bulgaria · v${VERSION}`;
 
     // Contact line: plain-text email styled with user-select:all so a
     // single click selects the whole address. No mailto link — on systems

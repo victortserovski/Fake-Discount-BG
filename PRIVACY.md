@@ -1,11 +1,11 @@
-# Privacy Policy — Fake Discount BG
+# Privacy Policy — Fake Discount Bulgaria
 
 **Last updated:** 14 May 2026
 
 ## Summary
 
-Fake Discount BG is a browser extension that detects fake discounts on
-20 Bulgarian e-commerce sites by recording the prices of products you
+Fake Discount Bulgaria is a browser extension that detects fake discounts
+on 20 Bulgarian e-commerce sites by recording the prices of products you
 visit. Most data stays in your browser. **A short, anonymous record of
 each product observation is also uploaded to a developer-controlled
 Postgres database (Supabase)** so the extension can build a shared
