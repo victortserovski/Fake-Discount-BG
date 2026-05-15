@@ -1,4 +1,4 @@
-# Fake Discount Bulgaria — Catching Retailers Faking Sales
+# Fake Discount Bulgaria — Catch Faked Sales
 
 > Chrome / Edge extension
 
