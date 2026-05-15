@@ -245,6 +245,25 @@ take the higher bump (one MINOR absorbs any number of patches inside it).
   surface. Tables created via the SQL Editor (vs the Table Editor UI) do
   NOT auto-grant privileges to `anon`/`authenticated` — explicit `grant`
   statements are required.
+- **Supabase Data API default-grant change (2026-05-30 / 2026-10-30).**
+  Per a 2026-05 Supabase email: from 2026-05-30, NEW projects stop
+  auto-exposing `public` tables to the Data API (PostgREST / supabase-js /
+  GraphQL). From 2026-10-30, the same change applies to NEW tables in
+  EXISTING projects (this project). The existing `price_history` table
+  is unaffected (its grants are already explicit — see the bullet above).
+  Future schema additions (e.g. a `verdicts` aggregate table, an `events`
+  log) MUST include explicit `grant` statements in the same migration
+  block:
+  ```sql
+  grant select on public.<new_table> to anon;
+  grant select, insert, update, delete on public.<new_table> to authenticated;
+  grant select, insert, update, delete on public.<new_table> to service_role;
+  alter table public.<new_table> enable row level security;
+  -- + policies per role
+  ```
+  If a grant is missing, PostgREST returns HTTP 401 with error code
+  `42501` and the exact GRANT statement to fix it. Don't forget the
+  matching RLS policy — `grant` alone isn't enough with RLS on.
 - **Verdict reason strings include `{observations}` and `{days}` placeholders.**
   `background/price-tracker.js` computes both from `history` (count and
   span-from-first-observation in days) and passes them in `reasonParams` for
