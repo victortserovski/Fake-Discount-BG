@@ -427,8 +427,12 @@
       filtered.sort((a, b) => latestPrice(b) - latestPrice(a));
     } else if (sortMode === 'targets') {
       filtered.sort((a, b) => {
-        const aHasTarget = a.url && cachedTargets[a.url] > 0 ? 1 : 0;
-        const bHasTarget = b.url && cachedTargets[b.url] > 0 ? 1 : 0;
+        // Look up by productId (canonical since v3.15.11), fall back to URL
+        // key for legacy targets the widget hasn't migrated yet.
+        const aT = (a.id && cachedTargets[a.id]) || (a.url && cachedTargets[a.url]) || 0;
+        const bT = (b.id && cachedTargets[b.id]) || (b.url && cachedTargets[b.url]) || 0;
+        const aHasTarget = aT > 0 ? 1 : 0;
+        const bHasTarget = bT > 0 ? 1 : 0;
         if (aHasTarget !== bHasTarget) return bHasTarget - aHasTarget;
         return new Date(b.lastUpdated) - new Date(a.lastUpdated);
       });
@@ -568,7 +572,11 @@
 
       // Price-target row (only when set). Independent of the price-range
       // row that was removed — this still shows on its own line.
-      const targetValue = product.url ? cachedTargets[product.url] : null;
+      // Look up by productId (canonical since v3.15.11), fall back to
+      // URL key for legacy targets the widget hasn't migrated yet.
+      const targetValue = (product.id && cachedTargets[product.id])
+        || (product.url && cachedTargets[product.url])
+        || null;
       if (typeof targetValue === 'number' && targetValue > 0) {
         const targetDiv = document.createElement('div');
         targetDiv.className = 'product-price-target';

@@ -474,13 +474,18 @@ async function handleProductTracking(productData, sendResponse, sender) {
       // Badge API may not be available in all contexts
     }
 
-    // Check price targets and notify (per-tab so it doesn't override other tabs)
+    // Check price targets and notify (per-tab so it doesn't override
+    // other tabs). Read by productId first (canonical, since v3.15.11),
+    // fall back to the URL key for targets set on older versions that
+    // haven't been migrated yet.
     try {
       const tabId = sender?.tab?.id;
       const targetResult = await chrome.storage.local.get(['priceTargets']);
       const targets = targetResult.priceTargets || {};
-      const productUrl = productData.url || '';
-      if (targets[productUrl] && productData.price <= targets[productUrl]) {
+      const idKey = productData.id || '';
+      const urlKey = productData.url || '';
+      const target = (idKey && targets[idKey]) || (urlKey && targets[urlKey]) || null;
+      if (target && productData.price <= target) {
         chrome.action.setBadgeText({ text: '🎯', tabId });
         chrome.action.setBadgeBackgroundColor({ color: '#3B82F6', tabId });
       }

@@ -378,7 +378,14 @@
       const status = container.querySelector('.fake-discount-target-status');
       if (!input || !btn) return;
 
-      const productKey = product.url || '';
+      // Target storage key. Prefer the stable productId over the
+      // browser URL — same product visited via a `?ref=…` referrer
+      // or a `#section` anchor should resolve to the same target.
+      // The URL fallback is only there for products somehow loaded
+      // without a productId (shouldn't happen — every adapter sets
+      // one — but defensive).
+      const productKey = product.id || product.url || '';
+      const legacyUrlKey = product.url || '';
       const currency = t('currency') || 'EUR';
       const self = this;
 
@@ -401,24 +408,37 @@
         }
       };
 
-      // Load existing target
+      // Load existing target. Read the new id-keyed value first, fall
+      // back to the legacy url-keyed value (and migrate it). Targets
+      // set before v3.15.11 were keyed by `product.url`; we move them
+      // to `product.id` on first revisit so the badge / chart line /
+      // popup all see the same value going forward.
       try {
         const result = await chrome.storage.local.get(['priceTargets']);
         const targets = result.priceTargets || {};
-        if (targets[productKey]) {
-          input.value = targets[productKey];
-          renderStatus(targets[productKey]);
+        let existing = targets[productKey];
+        if (existing == null && legacyUrlKey && legacyUrlKey !== productKey && targets[legacyUrlKey] != null) {
+          // Migrate legacy URL-keyed target → productId key.
+          existing = targets[legacyUrlKey];
+          targets[productKey] = existing;
+          delete targets[legacyUrlKey];
+          await chrome.storage.local.set({ priceTargets: targets });
+        }
+        if (existing != null) {
+          input.value = existing;
+          renderStatus(existing);
         }
       } catch (e) {}
 
       btn.addEventListener('click', async () => {
         const targetPrice = parseFloat(input.value);
         if (!targetPrice || targetPrice <= 0) {
-          // Clear target
+          // Clear target — also clear any legacy URL-keyed entry.
           try {
             const result = await chrome.storage.local.get(['priceTargets']);
             const targets = result.priceTargets || {};
             delete targets[productKey];
+            if (legacyUrlKey && legacyUrlKey !== productKey) delete targets[legacyUrlKey];
             await chrome.storage.local.set({ priceTargets: targets });
             renderStatus(null);
             input.value = '';
@@ -432,6 +452,11 @@
           const result = await chrome.storage.local.get(['priceTargets']);
           const targets = result.priceTargets || {};
           targets[productKey] = targetPrice;
+          // If a legacy URL-keyed entry still exists for this product,
+          // remove it so we don't have two copies under different keys.
+          if (legacyUrlKey && legacyUrlKey !== productKey && targets[legacyUrlKey] != null) {
+            delete targets[legacyUrlKey];
+          }
           await chrome.storage.local.set({ priceTargets: targets });
           renderStatus(targetPrice);
 
@@ -538,14 +563,19 @@
       }
 
       // Look up the user's target price for this product so we can draw it
-      // as a horizontal line on the chart.
+      // as a horizontal line on the chart. Prefer the productId key; fall
+      // back to the legacy url key for targets saved before v3.15.11.
       let targetPrice = null;
-      if (product && product.url) {
+      if (product && (product.id || product.url)) {
         try {
           const result = await chrome.storage.local.get(['priceTargets']);
           const targets = result.priceTargets || {};
-          if (typeof targets[product.url] === 'number') {
-            targetPrice = targets[product.url];
+          const idKey = product.id || '';
+          const urlKey = product.url || '';
+          if (idKey && typeof targets[idKey] === 'number') {
+            targetPrice = targets[idKey];
+          } else if (urlKey && typeof targets[urlKey] === 'number') {
+            targetPrice = targets[urlKey];
           }
         } catch (e) {}
       }
