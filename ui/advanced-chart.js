@@ -272,41 +272,6 @@ if (typeof window !== 'undefined') {
       const data = this._validData || this.data || [];
       if (data.length < 2) return;
 
-      // Create or get defs element (should be at the top of SVG for proper structure)
-      let defs = this.svg.querySelector('defs');
-      if (!defs) {
-        defs = document.createElementNS('http://www.w3.org/2000/svg', 'defs');
-        // Insert defs as first child (before chart group) for proper SVG structure
-        if (this.svg.firstChild) {
-          this.svg.insertBefore(defs, this.svg.firstChild);
-        } else {
-          this.svg.appendChild(defs);
-        }
-      }
-      
-      const gradient = document.createElementNS('http://www.w3.org/2000/svg', 'linearGradient');
-      const gradientId = `areaGradient-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
-      gradient.setAttribute('id', gradientId);
-      gradient.setAttribute('x1', '0%');
-      gradient.setAttribute('y1', '0%');
-      gradient.setAttribute('x2', '0%');
-      gradient.setAttribute('y2', '100%');
-      
-      const lineColor = this.options.lineColor || '#3498db';
-      const stop1 = document.createElementNS('http://www.w3.org/2000/svg', 'stop');
-      stop1.setAttribute('offset', '0%');
-      stop1.setAttribute('stop-color', lineColor);
-      stop1.setAttribute('stop-opacity', '0.3');
-      gradient.appendChild(stop1);
-      
-      const stop2 = document.createElementNS('http://www.w3.org/2000/svg', 'stop');
-      stop2.setAttribute('offset', '100%');
-      stop2.setAttribute('stop-color', lineColor);
-      stop2.setAttribute('stop-opacity', '0.05');
-      gradient.appendChild(stop2);
-      
-      defs.appendChild(gradient);
-
       // Build area path
       let areaPath = '';
       data.forEach((point, index) => {
@@ -319,7 +284,7 @@ if (typeof window !== 'undefined') {
           areaPath += ` L ${x} ${y}`;
         }
       });
-      
+
       // Close area path
       if (data.length > 0) {
         const lastX = xScale(data.length - 1);
@@ -328,7 +293,16 @@ if (typeof window !== 'undefined') {
 
       const area = document.createElementNS('http://www.w3.org/2000/svg', 'path');
       area.setAttribute('d', areaPath);
-      area.setAttribute('fill', `url(#${gradientId})`);
+      // Solid fill + opacity, NOT a `url(#gradientId)` reference. Some
+      // host pages (Zora.bg is the confirmed case) carry a `<base href>`
+      // which causes Chrome to resolve SVG fragment-id references
+      // against the base URL instead of the current document — the
+      // gradient lookup fails and SVG falls back to black, producing
+      // a solid black area under the line. Flat fill + opacity is
+      // visually almost identical and immune to that bug.
+      const lineColor = this.options.lineColor || '#3498db';
+      area.setAttribute('fill', lineColor);
+      area.setAttribute('fill-opacity', '0.15');
       group.appendChild(area);
     }
 

@@ -418,6 +418,17 @@ take the higher bump (one MINOR absorbs any number of patches inside it).
   / `.old-price__value` instead. The 30-day reference is a regulatory
   display required by the Omnibus Directive — useful for users to
   see, useless as a "was X" comparison.
+- **Never use `url(#gradientId)` fragment refs for SVG fills.** The
+  chart `drawArea` previously filled the area-under-the-line with
+  `fill="url(#areaGradient-...)"`. Some host pages — confirmed on
+  Zora.bg — carry a `<base href="...">` element, which causes Chrome
+  to resolve SVG fragment-id references against the base URL instead
+  of the current document; the gradient lookup fails and SVG falls
+  back to the initial fill (solid black), producing the "black
+  triangle under the line" bug. Use a solid `fill` + `fill-opacity`
+  instead — visually nearly identical, immune to the bug. The same
+  caution applies to any future SVG that uses `url(#…)` references
+  (clip-path, mask, marker, filter, etc.).
 
 ## 7. Before declaring work done
 
