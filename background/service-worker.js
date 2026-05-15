@@ -1,16 +1,28 @@
 // Background service worker
+//
+// importScripts paths are built via chrome.runtime.getURL() rather
+// than as `../utils/...` / `./...` relatives. Spec-wise the relative
+// form should resolve against the service worker's own URL
+// (chrome-extension://<id>/background/service-worker.js), so
+// `../utils/storage.js` → `chrome-extension://<id>/utils/storage.js`.
+// In practice some Chrome installs / packaged-zip uploads fail to
+// resolve the `..` hop and bail out at boot with
+// `[object DOMException]` + "An unknown error occurred when fetching
+// the script", which then prevents the service worker from
+// registering at all. The absolute URLs from chrome.runtime.getURL
+// don't have this failure mode.
 try {
-  importScripts('../utils/storage.js');
+  importScripts(chrome.runtime.getURL('utils/storage.js'));
 } catch (e) {
   console.error('[Fake Discount] Failed to load storage.js:', e);
 }
 try {
-  importScripts('price-tracker.js');
+  importScripts(chrome.runtime.getURL('background/price-tracker.js'));
 } catch (e) {
   console.error('[Fake Discount] Failed to load price-tracker.js:', e);
 }
 try {
-  importScripts('../utils/supabase-sync.js');
+  importScripts(chrome.runtime.getURL('utils/supabase-sync.js'));
 } catch (e) {
   console.error('[Fake Discount] Failed to load supabase-sync.js:', e);
 }

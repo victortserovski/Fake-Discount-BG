@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Fake Discount Bulgaria - Catch Faked Sales",
-  "version": "3.15.8",
+  "version": "3.15.9",
   "description": "Catches Bulgarian retailers faking sales. Real price-history charts and deal verdicts on 20 online stores.",
   "permissions": [
     "storage",
