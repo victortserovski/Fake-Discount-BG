@@ -96,23 +96,16 @@
     widgetContainer.style.padding = '0 15px';
 
     let inserted = false;
-    // Sopharmacy's PDP renders a `.tabs` wrapper (containing
-    // `.tabs__list` + `.tabs__content`) right below the price/buy
-    // hero. Anchor BEFORE it for a full-width slot between the hero
-    // and the spec tabs.
-    const anchors = [
-      '.tabs',
-      '.product-tabs',
-      '.product-detail-info',
-      '.additional-info'
-    ];
-    for (const sel of anchors) {
-      const el = document.querySelector(sel);
-      if (el && el.parentNode) {
-        el.parentNode.insertBefore(widgetContainer, el);
-        inserted = true;
-        break;
-      }
+    // Sopharmacy's PDP renders the spec tabs (`.tabs`) below the hero.
+    // Previously we inserted BEFORE the tabs which placed the widget
+    // too high (right under the price box, squeezed). Instead insert
+    // AFTER the tab block — still full-width, just below the spec/
+    // description tabs, in the "extra info / reviews / related"
+    // gap before the page footer.
+    const tabs = document.querySelector('.tabs, .product-tabs, .product-detail-info');
+    if (tabs && tabs.parentNode) {
+      tabs.parentNode.insertBefore(widgetContainer, tabs.nextSibling);
+      inserted = true;
     }
     if (!inserted) {
       const main = document.querySelector('main, .site') || document.body;

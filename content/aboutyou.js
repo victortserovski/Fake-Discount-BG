@@ -107,27 +107,36 @@
     widgetContainer.style.padding = '0 15px';
 
     let inserted = false;
-    // About You is a React SPA. The product page lays out as:
-    //   1. hero (image gallery + brand/title/price/buy on the right)
-    //   2. product details / care / sizing section  ← anchor here
-    //   3. related products
-    //   4. similar products
-    //   5. recently viewed
-    //   6. newsletter signup
-    //   7. footer
-    // Earlier we anchored at `#Productinfos`, which on the live page
-    // appears below the newsletter — the widget rendered way past the
-    // fold. Try several data-testid hooks (stable across builds) for
-    // the "right under the hero" section first; fall back to the
-    // bottom only if nothing matches.
+    // About You is a React SPA. The product page renders far more
+    // sections below the hero (details accordion, recommendations,
+    // similar items, recently viewed, newsletter, footer) — anchoring
+    // at the wrong one buried the widget below the newsletter.
+    //
+    // The most reliable hooks are the data-test-id / data-testid /
+    // hashed class names that survive between builds. Try several
+    // variants and a few common positional fallbacks.
     const anchors = [
-      '[data-testid="productDetails"]',
-      '[data-testid="productInformation"]',
-      '[data-testid="productDescription"]',
-      '[data-testid="similarProducts"]',
-      '[data-testid="relatedProducts"]',
-      '[data-testid="recommendedProducts"]',
-      '[id^="productInfo"]',
+      // Highest-priority: section right under the hero (details
+      // accordion / care info / sizing)
+      '[data-test-id="productDetailAccordion"]',
+      '[data-test-id="ProductDetailAccordion"]',
+      '[data-testid="productDetailAccordion"]',
+      '[data-test-id*="productDetail"]',
+      '[data-testid*="productDetail"]',
+      '[data-test-id*="ProductDetail"]',
+      '[data-testid*="ProductDetail"]',
+      '[class*="ProductDetailsAccordion"]',
+      '[class*="ProductInformationAccordion"]',
+      '[class*="ProductDescription"]',
+      '[class*="ProductDetails__"]',
+      // Mid-priority: recommendations / similar / related
+      '[data-testid*="similar"]',
+      '[data-testid*="recommended"]',
+      '[data-testid*="related"]',
+      '[class*="SimilarProducts"]',
+      '[class*="RecommendedProducts"]',
+      '[class*="RelatedProducts"]',
+      // Lowest: previous default
       '#Productinfos'
     ];
     for (const sel of anchors) {
@@ -139,8 +148,16 @@
       }
     }
     if (!inserted) {
-      // Last resort: append into the React root only if we couldn't
-      // find any structured anchor (better visible than nothing).
+      // No anchor found — try inserting AFTER the H1 instead of dumping
+      // into the React root (which lands at the very bottom of the body).
+      const h1 = document.querySelector('h1');
+      const card = h1 && h1.closest('[class*="ProductDetail"], main, section');
+      if (card && card.parentNode) {
+        card.parentNode.insertBefore(widgetContainer, card.nextSibling);
+        inserted = true;
+      }
+    }
+    if (!inserted) {
       const root = document.querySelector('#react-root, main') || document.body;
       root.appendChild(widgetContainer);
     }

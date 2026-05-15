@@ -228,13 +228,13 @@ body.fullview .open-fullview {
 .chip.active[data-site="ardes"]        { background: linear-gradient(135deg, #003DA5 0%, #1F65C4 100%); color: white; border-color: transparent; }
 .chip.active[data-site="plesio"]       { background: linear-gradient(135deg, #E60012 0%, #F04458 100%); color: white; border-color: transparent; }
 .chip.active[data-site="aboutyou"]     { background: linear-gradient(135deg, #1F1F1F 0%, #4A4A4A 100%); color: white; border-color: transparent; }
-.chip.active[data-site="answear"]      { background: linear-gradient(135deg, #C70039 0%, #E63E5C 100%); color: white; border-color: transparent; }
+.chip.active[data-site="answear"]      { background: linear-gradient(135deg, #1A1A1A 0%, #3D2B5A 100%); color: white; border-color: transparent; }
 .chip.active[data-site="decathlon"]    { background: linear-gradient(135deg, #0082C3 0%, #2BA8E5 100%); color: white; border-color: transparent; }
-.chip.active[data-site="dm"]           { background: linear-gradient(135deg, #002878 0%, #2046A8 100%); color: white; border-color: transparent; }
+.chip.active[data-site="dm"]           { background: linear-gradient(135deg, #FEC700 0%, #FFD93D 100%); color: #1a1a1a; border-color: transparent; }
 .chip.active[data-site="fashiondays"]  { background: linear-gradient(135deg, #000000 0%, #2C2C2C 100%); color: white; border-color: transparent; }
 .chip.active[data-site="lilly"]        { background: linear-gradient(135deg, #E91E63 0%, #F06292 100%); color: white; border-color: transparent; }
-.chip.active[data-site="bricolage"]    { background: linear-gradient(135deg, #007A33 0%, #2EA84F 100%); color: white; border-color: transparent; }
-.chip.active[data-site="obuvki"]       { background: linear-gradient(135deg, #FF4F00 0%, #FF7733 100%); color: white; border-color: transparent; }
+.chip.active[data-site="bricolage"]    { background: linear-gradient(135deg, #B7042A 0%, #E32B3D 100%); color: white; border-color: transparent; }
+.chip.active[data-site="obuvki"]       { background: linear-gradient(135deg, #1F1F1F 0%, #3D3D3D 100%); color: white; border-color: transparent; }
 .chip.active[data-site="praktiker"]    { background: linear-gradient(135deg, #FFD700 0%, #FFE54C 100%); color: #1a1a1a; border-color: transparent; }
 .chip.active[data-site="sopharmacy"]   { background: linear-gradient(135deg, #00A896 0%, #2EC4B6 100%); color: white; border-color: transparent; }
 .chip.active[data-site="sportdepot"]   { background: linear-gradient(135deg, #003B71 0%, #1F66A8 100%); color: white; border-color: transparent; }
@@ -720,7 +720,7 @@ body.fullview .open-fullview {
 }
 
 .site-badge.answear {
-  background: linear-gradient(135deg, #C70039 0%, #E63E5C 100%);
+  background: linear-gradient(135deg, #1A1A1A 0%, #3D2B5A 100%);
 }
 
 .site-badge.decathlon {
@@ -728,7 +728,8 @@ body.fullview .open-fullview {
 }
 
 .site-badge.dm {
-  background: linear-gradient(135deg, #002878 0%, #2046A8 100%);
+  background: linear-gradient(135deg, #FEC700 0%, #FFD93D 100%);
+  color: #1a1a1a;
 }
 
 .site-badge.fashiondays {
@@ -740,11 +741,11 @@ body.fullview .open-fullview {
 }
 
 .site-badge.bricolage {
-  background: linear-gradient(135deg, #007A33 0%, #2EA84F 100%);
+  background: linear-gradient(135deg, #B7042A 0%, #E32B3D 100%);
 }
 
 .site-badge.obuvki {
-  background: linear-gradient(135deg, #FF4F00 0%, #FF7733 100%);
+  background: linear-gradient(135deg, #1F1F1F 0%, #3D3D3D 100%);
 }
 
 .site-badge.praktiker {

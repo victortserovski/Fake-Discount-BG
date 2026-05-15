@@ -155,25 +155,34 @@
     widgetContainer.style.isolation = 'isolate';
 
     let inserted = false;
-    // dm is a heavy SPA. Anchor BEFORE the first recommendation /
-    // related-products rail so the widget sits directly under the
-    // product hero, not buried after the "people also viewed" cards
-    // (the prior placement dropped the widget into a grid of related
-    // products way down the page). Try several stable hooks in
-    // priority order; bail if nothing matches.
+    // dm is a heavy SPA. The live DOM uses `data-dmid="..."` attributes
+    // but exact values are hard to predict — try several common
+    // patterns including substring matches (`*=`) before falling
+    // back to wildcard class names. Priority: description block
+    // (right under the hero) → tabs section → recommendation rails.
     const anchors = [
-      '[data-dmid="product-recommendation"]',
-      '[data-dmid="recommendations"]',
-      '[data-dmid="related-products"]',
-      '[data-dmid="similar-products"]',
-      '[data-dmid="product-detail-tabs"]',
+      // Right under hero — description / info
       '[data-dmid="product-description"]',
       '[data-dmid="pdp-description"]',
+      '[data-dmid*="description"]',
+      '[data-dmid*="product-info"]',
+      '[data-dmid*="ProductInfo"]',
+      '[class*="ProductDescription"]',
+      '[class*="ProductInfo"]:not([class*="Card"])',
+      // Mid-page — tabs
+      '[data-dmid="product-detail-tabs"]',
+      '[data-dmid*="tabs"]',
+      '[data-dmid*="Tabs"]',
+      '[class*="ProductTabs"]',
+      '[class*="PdpTabs"]',
+      // Lower — recommendations
+      '[data-dmid="product-recommendation"]',
+      '[data-dmid*="recommend"]',
+      '[data-dmid*="related"]',
+      '[data-dmid*="similar"]',
       '[class*="ProductRecommendation"]',
       '[class*="RelatedProducts"]',
-      '[class*="SimilarProducts"]',
-      '[class*="ProductDescription"]',
-      '[class*="ProductTabs"]'
+      '[class*="SimilarProducts"]'
     ];
     for (const sel of anchors) {
       const el = document.querySelector(sel);
@@ -184,6 +193,7 @@
       }
     }
     if (!inserted) {
+      // Append inside the PDP container if we found it.
       const pdp = document.querySelector('[data-dmid="product-detail"], [data-dmid="pdp"], [class*="ProductDetail"], [class*="Pdp"]');
       if (pdp) {
         pdp.appendChild(widgetContainer);
@@ -191,7 +201,9 @@
       }
     }
     if (!inserted) {
-      // No safe anchor — skip widget rather than overlap the layout.
+      // No safe anchor — skip rather than dump the widget into an
+      // unknown shell where it overlaps the layout (z-index defense
+      // helps but doesn't fix wrong positioning).
       console.warn('[Fake Discount] dm: no product-detail anchor found; widget not injected. Send a saved page if this persists.');
       return;
     }

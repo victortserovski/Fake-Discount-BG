@@ -200,12 +200,12 @@
   box-shadow: 0 2px 8px rgba(31, 31, 31, 0.4);
 }
 
-/* Answear - Crimson accent */
+/* Answear - Dark with violet accent (Answear's primary brand is black) */
 .fake-discount-site-indicator.answear {
-  background: linear-gradient(135deg, #C70039 0%, #E63E5C 100%);
+  background: linear-gradient(135deg, #1A1A1A 0%, #3D2B5A 100%);
   color: #ffffff;
   border-color: rgba(255, 255, 255, 0.4);
-  box-shadow: 0 2px 8px rgba(199, 0, 57, 0.4);
+  box-shadow: 0 2px 8px rgba(26, 26, 26, 0.4);
 }
 
 /* Decathlon - Brand sky-blue */
@@ -216,12 +216,12 @@
   box-shadow: 0 2px 8px rgba(0, 130, 195, 0.4);
 }
 
-/* dm-drogeriemarkt - Brand navy */
+/* dm-drogeriemarkt - Signature brand yellow (logo: yellow on red) */
 .fake-discount-site-indicator.dm {
-  background: linear-gradient(135deg, #002878 0%, #2046A8 100%);
-  color: #ffffff;
-  border-color: rgba(255, 255, 255, 0.4);
-  box-shadow: 0 2px 8px rgba(0, 40, 120, 0.4);
+  background: linear-gradient(135deg, #FEC700 0%, #FFD93D 100%);
+  color: #1a1a1a;
+  border-color: rgba(0, 0, 0, 0.15);
+  box-shadow: 0 2px 8px rgba(254, 199, 0, 0.4);
 }
 
 /* Fashion Days - Black accent */
@@ -240,20 +240,20 @@
   box-shadow: 0 2px 8px rgba(233, 30, 99, 0.4);
 }
 
-/* Mr.Bricolage - Brand green */
+/* Mr.Bricolage - Brand red (deeper than Technopolis to differentiate) */
 .fake-discount-site-indicator.bricolage {
-  background: linear-gradient(135deg, #007A33 0%, #2EA84F 100%);
+  background: linear-gradient(135deg, #B7042A 0%, #E32B3D 100%);
   color: #ffffff;
   border-color: rgba(255, 255, 255, 0.4);
-  box-shadow: 0 2px 8px rgba(0, 122, 51, 0.4);
+  box-shadow: 0 2px 8px rgba(183, 4, 42, 0.4);
 }
 
-/* Obuvki - Orange accent */
+/* Obuvki - Charcoal (Modivo group's primary brand is dark / near-black) */
 .fake-discount-site-indicator.obuvki {
-  background: linear-gradient(135deg, #FF4F00 0%, #FF7733 100%);
+  background: linear-gradient(135deg, #1F1F1F 0%, #3D3D3D 100%);
   color: #ffffff;
   border-color: rgba(255, 255, 255, 0.4);
-  box-shadow: 0 2px 8px rgba(255, 79, 0, 0.4);
+  box-shadow: 0 2px 8px rgba(31, 31, 31, 0.4);
 }
 
 /* Praktiker - Brand yellow (dark text for contrast) */

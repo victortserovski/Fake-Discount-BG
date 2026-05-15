@@ -107,17 +107,18 @@
     widgetContainer.style.padding = '0 15px';
 
     let inserted = false;
-    // Anchor BEFORE the related/recommended-products rails (which sit
-    // far below the product info on the live page — anchoring there
-    // pushed the widget near the page footer). Try the
-    // related/recommended slots first, then the product description,
-    // then standard Magento tab containers.
+    // Anchor BEFORE the description block (full-width section just
+    // below the hero on Lilly's PDP). Putting the widget before
+    // .related-products-field pushed it down past the spec/review
+    // sections; .description is much higher in document order.
     const anchors = [
-      '.related-products-field',
-      '.stenik-recommended-products',
       '.description',
+      '.product.attribute.description',
+      '.product.attribute.overview',
       '.product.info.detailed',
       '.product-info-tabs',
+      '.related-products-field',
+      '.stenik-recommended-products',
       '.additional-attributes-wrapper'
     ];
     for (const sel of anchors) {

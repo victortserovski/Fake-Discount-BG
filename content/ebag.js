@@ -101,18 +101,30 @@
     widgetContainer.style.padding = '0 15px';
 
     let inserted = false;
-    // eBag uses the same e-commerce template platform as Mr.Bricolage
-    // (`#pdpTabs`, `.brico-tabs`, `.ProductRecommendedSlot`, etc.).
-    // Anchor BEFORE the full-width PDP tab section or recommendation
-    // rail so the widget sits at full width, just below the hero.
+    // eBag is a heavy React SPA built on the SAP-Hybris template (same
+    // family as Mr.Bricolage). Try high-priority anchors near the
+    // product hero FIRST so the widget lands close to the price,
+    // not at the bottom of the page. The previous `#pdpTabs`-first
+    // ordering put the widget below the description / reviews tabs,
+    // which on a long product page is far down.
     const anchors = [
+      // Closest to the hero — info/description area right below price
+      '.initialDescription',
+      '[class*="initialDescription"]',
+      '[class*="ProductSummary"]',
+      '[class*="product-summary"]',
+      '[class*="ProductInfo"]:not([class*="Card"])',
+      '[class*="product-info"]:not([class*="card"])',
+      // Mid-page — spec / detail tabs (still better than bottom)
       '#pdpTabs',
       '.brico-tabs',
+      '[class*="ProductDescription"]',
+      '[class*="ProductTabs"]',
+      // Last resort — recommendation rails
       '.ProductRecommendedSlot',
       '.ProductRelatedSlot',
-      '.initialDescription',
-      '[class*="ProductDescription"]',
-      '[class*="ProductTabs"]'
+      '[class*="Recommendation"]',
+      '[class*="RelatedProduct"]'
     ];
     for (const sel of anchors) {
       const el = document.querySelector(sel);
