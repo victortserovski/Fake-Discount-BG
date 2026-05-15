@@ -107,14 +107,29 @@
     widgetContainer.style.padding = '0 15px';
 
     let inserted = false;
-    // Anchor: before the spec/description tabs (Magento standard).
-    const tabs = document.querySelector('.product.info.detailed, .product-info-tabs, .additional-attributes-wrapper');
-    if (tabs && tabs.parentNode) {
-      tabs.parentNode.insertBefore(widgetContainer, tabs);
-      inserted = true;
+    // Anchor BEFORE the related/recommended-products rails (which sit
+    // far below the product info on the live page — anchoring there
+    // pushed the widget near the page footer). Try the
+    // related/recommended slots first, then the product description,
+    // then standard Magento tab containers.
+    const anchors = [
+      '.related-products-field',
+      '.stenik-recommended-products',
+      '.description',
+      '.product.info.detailed',
+      '.product-info-tabs',
+      '.additional-attributes-wrapper'
+    ];
+    for (const sel of anchors) {
+      const el = document.querySelector(sel);
+      if (el && el.parentNode) {
+        el.parentNode.insertBefore(widgetContainer, el);
+        inserted = true;
+        break;
+      }
     }
     if (!inserted) {
-      const main = document.querySelector('main, .product-info-main')?.closest('main') || document.querySelector('main') || document.body;
+      const main = document.querySelector('main') || document.body;
       main.appendChild(widgetContainer);
     }
     ContentScriptBase.loadWidgetCSS();

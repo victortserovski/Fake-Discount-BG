@@ -35,7 +35,12 @@ const ContentScriptBase = {
         }
     },
 
-    // Create widget container with common styles
+    // Create widget container with common styles. The z-index + position
+    // + isolation defense is applied at the base layer because several
+    // SPA storefronts (dm, About You, Answear) use overlay containers,
+    // transforms, or position:fixed sub-trees that previously caused
+    // the widget to render BEHIND product content or in front of fixed
+    // top menus depending on which container we inserted into.
     createWidgetContainer() {
         const widgetContainer = document.createElement('div');
         widgetContainer.id = 'fake-discount-widget';
@@ -44,6 +49,9 @@ const ContentScriptBase = {
         widgetContainer.style.width = '100%';
         widgetContainer.style.clear = 'both';
         widgetContainer.style.boxSizing = 'border-box';
+        widgetContainer.style.position = 'relative';
+        widgetContainer.style.zIndex = '0';
+        widgetContainer.style.isolation = 'isolate';
         return widgetContainer;
     },
 

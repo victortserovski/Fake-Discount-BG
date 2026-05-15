@@ -96,11 +96,23 @@
     widgetContainer.style.padding = '0 15px';
 
     let inserted = false;
-    // Anchor: before the description / additional info tabs section.
-    const tabs = document.querySelector('.product-tabs, .product-detail-info, .additional-info');
-    if (tabs && tabs.parentNode) {
-      tabs.parentNode.insertBefore(widgetContainer, tabs);
-      inserted = true;
+    // Sopharmacy's PDP renders a `.tabs` wrapper (containing
+    // `.tabs__list` + `.tabs__content`) right below the price/buy
+    // hero. Anchor BEFORE it for a full-width slot between the hero
+    // and the spec tabs.
+    const anchors = [
+      '.tabs',
+      '.product-tabs',
+      '.product-detail-info',
+      '.additional-info'
+    ];
+    for (const sel of anchors) {
+      const el = document.querySelector(sel);
+      if (el && el.parentNode) {
+        el.parentNode.insertBefore(widgetContainer, el);
+        inserted = true;
+        break;
+      }
     }
     if (!inserted) {
       const main = document.querySelector('main, .site') || document.body;

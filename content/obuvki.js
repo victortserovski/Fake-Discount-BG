@@ -128,11 +128,35 @@
     widgetContainer.style.padding = '0 15px';
 
     let inserted = false;
-    // Anchor: before the description / size guide / specs section.
-    const tabs = document.querySelector('.product-description, .product-tabs, [class*="ProductDescription"]');
-    if (tabs && tabs.parentNode) {
-      tabs.parentNode.insertBefore(widgetContainer, tabs);
-      inserted = true;
+    // Obuvki is a Vue 3 SPA with `data-v-*` scoping. Anchor selectors
+    // here target the actual emitted DOM (verified against the
+    // regular/discounted/random saved samples). Priority order:
+    //   1. Recommendations carousel — anchor BEFORE so the widget
+    //      lands directly under the product info, above any "Подобни"
+    //      / "Спонсорирани" rails (those rails are present on some
+    //      products and absent on others — the BEFORE-anchor is
+    //      stable either way).
+    //   2. Modivo club benefits section (present on most products).
+    //   3. Append inside the main `.product-details` wrapper.
+    const anchors = [
+      '.recommended-products-simple-slider-wrapper-new',
+      '.modivo-club-benefits-section',
+      '.size-table'
+    ];
+    for (const sel of anchors) {
+      const el = document.querySelector(sel);
+      if (el && el.parentNode) {
+        el.parentNode.insertBefore(widgetContainer, el);
+        inserted = true;
+        break;
+      }
+    }
+    if (!inserted) {
+      const details = document.querySelector('.product-details');
+      if (details) {
+        details.appendChild(widgetContainer);
+        inserted = true;
+      }
     }
     if (!inserted) {
       const main = document.querySelector('main') || document.body;

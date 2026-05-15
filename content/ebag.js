@@ -99,17 +99,28 @@
     const widgetContainer = ContentScriptBase.createWidgetContainer();
     widgetContainer.style.minHeight = '100px';
     widgetContainer.style.padding = '0 15px';
-    // Defensive: ensure the widget creates its own stacking context so
-    // SPA layouts can't accidentally render it behind other elements.
-    widgetContainer.style.position = 'relative';
-    widgetContainer.style.zIndex = '1';
 
     let inserted = false;
-    // Anchor: before description / reviews / specs section.
-    const tabs = document.querySelector('[class*="ProductDescription"], [class*="ProductTabs"], [data-section="description"]');
-    if (tabs && tabs.parentNode) {
-      tabs.parentNode.insertBefore(widgetContainer, tabs);
-      inserted = true;
+    // eBag uses the same e-commerce template platform as Mr.Bricolage
+    // (`#pdpTabs`, `.brico-tabs`, `.ProductRecommendedSlot`, etc.).
+    // Anchor BEFORE the full-width PDP tab section or recommendation
+    // rail so the widget sits at full width, just below the hero.
+    const anchors = [
+      '#pdpTabs',
+      '.brico-tabs',
+      '.ProductRecommendedSlot',
+      '.ProductRelatedSlot',
+      '.initialDescription',
+      '[class*="ProductDescription"]',
+      '[class*="ProductTabs"]'
+    ];
+    for (const sel of anchors) {
+      const el = document.querySelector(sel);
+      if (el && el.parentNode) {
+        el.parentNode.insertBefore(widgetContainer, el);
+        inserted = true;
+        break;
+      }
     }
     if (!inserted) {
       const root = document.querySelector('#store-root, main') || document.body;

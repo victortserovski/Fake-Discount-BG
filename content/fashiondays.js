@@ -112,11 +112,24 @@
     widgetContainer.style.padding = '0 15px';
 
     let inserted = false;
-    // Anchor: after the price block, before the description/specs tabs.
-    const priceBlock = document.querySelector('.price-block, [class*="ProductPriceBlock"]');
-    if (priceBlock && priceBlock.parentNode) {
-      priceBlock.parentNode.insertBefore(widgetContainer, priceBlock.nextSibling);
-      inserted = true;
+    // Fashion Days renders a full-width tab content area below the
+    // image+price hero. Anchor BEFORE the recommendations carousel
+    // (".similar-products") which is the first major section that
+    // spans the page width — that puts the widget right after the
+    // hero area at the same full width.
+    const anchors = [
+      '.similar-products',
+      '.tab-content.responsive',
+      '.product-description-content',
+      '.product-information'
+    ];
+    for (const sel of anchors) {
+      const el = document.querySelector(sel);
+      if (el && el.parentNode) {
+        el.parentNode.insertBefore(widgetContainer, el);
+        inserted = true;
+        break;
+      }
     }
     if (!inserted) {
       const main = document.querySelector('main') || document.body;

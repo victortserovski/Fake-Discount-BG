@@ -104,12 +104,25 @@
     widgetContainer.style.padding = '0 15px';
 
     let inserted = false;
-    // Anchor: after the price block, before specs/description.
-    const pricesBlock = document.querySelector('.product__prices, .product__prices-block');
-    if (pricesBlock && pricesBlock.parentNode) {
-      const wrap = pricesBlock.closest('.product__prices') || pricesBlock;
-      wrap.parentNode.insertBefore(widgetContainer, wrap.nextSibling);
-      inserted = true;
+    // Anchor BEFORE the full-width PDP tab section (`#pdpTabs` /
+    // `.brico-tabs`) or the recommendation rails. Inserting after the
+    // `.product__prices` block kept the widget inside the right rail
+    // — a narrow column — which squished the chart. The tab section
+    // below the hero is full-width on every PDP layout.
+    const anchors = [
+      '#pdpTabs',
+      '.brico-tabs',
+      '.ProductRecommendedSlot',
+      '.ProductRelatedSlot',
+      '.initialDescription'
+    ];
+    for (const sel of anchors) {
+      const el = document.querySelector(sel);
+      if (el && el.parentNode) {
+        el.parentNode.insertBefore(widgetContainer, el);
+        inserted = true;
+        break;
+      }
     }
     if (!inserted) {
       const main = document.querySelector('main') || document.body;

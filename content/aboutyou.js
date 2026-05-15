@@ -107,14 +107,40 @@
     widgetContainer.style.padding = '0 15px';
 
     let inserted = false;
-    // Preferred anchor: AboutYou's product info area carries id #Productinfos
-    // — full-width section under the hero.
-    const productInfo = document.getElementById('Productinfos');
-    if (productInfo && productInfo.parentNode) {
-      productInfo.parentNode.insertBefore(widgetContainer, productInfo);
-      inserted = true;
+    // About You is a React SPA. The product page lays out as:
+    //   1. hero (image gallery + brand/title/price/buy on the right)
+    //   2. product details / care / sizing section  ← anchor here
+    //   3. related products
+    //   4. similar products
+    //   5. recently viewed
+    //   6. newsletter signup
+    //   7. footer
+    // Earlier we anchored at `#Productinfos`, which on the live page
+    // appears below the newsletter — the widget rendered way past the
+    // fold. Try several data-testid hooks (stable across builds) for
+    // the "right under the hero" section first; fall back to the
+    // bottom only if nothing matches.
+    const anchors = [
+      '[data-testid="productDetails"]',
+      '[data-testid="productInformation"]',
+      '[data-testid="productDescription"]',
+      '[data-testid="similarProducts"]',
+      '[data-testid="relatedProducts"]',
+      '[data-testid="recommendedProducts"]',
+      '[id^="productInfo"]',
+      '#Productinfos'
+    ];
+    for (const sel of anchors) {
+      const el = document.querySelector(sel);
+      if (el && el.parentNode) {
+        el.parentNode.insertBefore(widgetContainer, el);
+        inserted = true;
+        break;
+      }
     }
     if (!inserted) {
+      // Last resort: append into the React root only if we couldn't
+      // find any structured anchor (better visible than nothing).
       const root = document.querySelector('#react-root, main') || document.body;
       root.appendChild(widgetContainer);
     }

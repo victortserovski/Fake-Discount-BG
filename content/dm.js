@@ -155,22 +155,30 @@
     widgetContainer.style.isolation = 'isolate';
 
     let inserted = false;
-    // Try to anchor INSIDE a known product container. If none found,
-    // bail rather than dumping the widget into an unknown shell — that's
-    // what caused the visual overlap.
+    // dm is a heavy SPA. Anchor BEFORE the first recommendation /
+    // related-products rail so the widget sits directly under the
+    // product hero, not buried after the "people also viewed" cards
+    // (the prior placement dropped the widget into a grid of related
+    // products way down the page). Try several stable hooks in
+    // priority order; bail if nothing matches.
     const anchors = [
+      '[data-dmid="product-recommendation"]',
+      '[data-dmid="recommendations"]',
+      '[data-dmid="related-products"]',
+      '[data-dmid="similar-products"]',
       '[data-dmid="product-detail-tabs"]',
       '[data-dmid="product-description"]',
       '[data-dmid="pdp-description"]',
+      '[class*="ProductRecommendation"]',
+      '[class*="RelatedProducts"]',
+      '[class*="SimilarProducts"]',
       '[class*="ProductDescription"]',
-      '[class*="ProductTabs"]',
-      '[class*="PdpDescription"]',
-      '[class*="PdpTabs"]'
+      '[class*="ProductTabs"]'
     ];
     for (const sel of anchors) {
-      const tabs = document.querySelector(sel);
-      if (tabs && tabs.parentNode) {
-        tabs.parentNode.insertBefore(widgetContainer, tabs);
+      const el = document.querySelector(sel);
+      if (el && el.parentNode) {
+        el.parentNode.insertBefore(widgetContainer, el);
         inserted = true;
         break;
       }
