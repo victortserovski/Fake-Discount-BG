@@ -1,6 +1,6 @@
 # Privacy Policy — Fake Discount Bulgaria
 
-**Last updated:** 15 July 2026
+**Last updated:** 6 September 2026
 
 ## Summary
 
@@ -45,8 +45,10 @@ extension stores the following in your browser's local extension storage
 - Optional: a price target you set manually
 - Your settings (language, per-site toggles, chart visibility,
   popup filter chips, sort preference)
-- A random pseudonymous device ID (UUID v4) used to deduplicate uploads
-  from the same installation
+- A pseudonymous device ID derived from a random installation secret, used to
+  authenticate and deduplicate uploads from that installation. The secret stays
+  in extension storage and is sent over HTTPS to the ingestion endpoint; it is
+  not stored in the price-history table
 
 Hiding the on-page chart (Settings → "Show chart on product pages") does
 **not** stop local price tracking or Supabase uploads — it only controls
@@ -67,16 +69,19 @@ price-graph widget on product pages.
 
 In addition to the local copy, the extension attempts a best-effort upload of
 each recorded daily price snapshot to a Postgres database hosted on Supabase,
-operated by the developer of this extension. The upload is fire-and-forget,
-has no durable retry queue, and never blocks the local save or widget render.
-Offline or interrupted uploads can therefore be missing remotely. Each upload contains:
+operated by the developer of this extension. Network requests never block the
+local save or widget render. Pending snapshots are stored locally per product/day
+and retried every five minutes, including after the worker restarts. A newer visit
+replaces that day's pending snapshot. Acknowledged queue entries are removed;
+price history is preserved. Storage failure or termination before enqueue can
+still leave an observation missing remotely. Each upload contains:
 
 | Field | Example | Purpose |
 |---|---|---|
-| `device_id` | random UUID v4 | Deduplicate observations from the same install. Not linked to your identity. |
+| `device_id` | UUID derived from an installation secret | Deduplicate observations from the same install. Not linked to your identity. |
 | `product_id` | `emag_DKFWLW3BM` | Extension-internal identifier derived from the URL. |
 | `site` | `emag` | Which store the observation comes from. |
-| `url` | `https://www.emag.bg/...` | The full product page URL as visited, including query parameters or a fragment when present. |
+| `url` | `https://www.emag.bg/...` | The product URL with query parameters and fragments removed. Earlier uploads may contain the full visited URL. |
 | `title` | `Smartphone Samsung Galaxy S25 FE` | The product name. |
 | `thumbnail` | `https://cdn.emag.bg/...jpg` | The product image URL. |
 | `ean` | `8806097540519` | The EAN/GTIN barcode when the page exposes one. |
@@ -85,7 +90,8 @@ Offline or interrupted uploads can therefore be missing remotely. Each upload co
 | `discount` | `17` | Percentage difference between the two. |
 | `observed_date` | `2026-05-14` | Date of the observation (local time). |
 | `observed_at` | server timestamp | Supabase/Postgres timestamp for when the upload was received. |
-| `ext_version` | `3.16.4` | Extension version that recorded the observation. |
+| `client_observed_at` | observation timestamp | Prevents an older request replacing a newer same-day value. |
+| `ext_version` | current manifest version | Extension version that recorded the observation. |
 | `user_agent` | full browser UA string | Browser/OS identification, for debugging extraction issues. |
 
 The upload is keyed by `(device_id, product_id, observed_date)` — only
@@ -104,14 +110,16 @@ The dataset is used by the developer to:
   price-history sharing or community-wide fake-discount detection.
 
 The developer does not sell the dataset, provide it to advertising networks,
-or use it for targeted advertising. The production Supabase endpoint currently
-allows a query made with the public anon key bundled in the extension to read
-rows from `price_history`. Uploaded rows must therefore not be treated as
-private to the developer. The documented database recipe also defines an
-allow-all anon update policy but omits the table grant needed for the extension
-upsert: as written, fresh writes fail; adding the missing grant would let any
-anon-key holder update arbitrary rows. Direct table access must be replaced by
-a controlled write path before public release.
+or use it for targeted advertising. The client uses a write-only ingestion RPC.
+Its server setup revokes direct table access and derives each device ID from
+the installation secret, preventing callers from choosing another device ID.
+
+Direct public table access is revoked on the configured server. Anonymous REST
+reads are denied; the ingestion function accepts validated observations only
+under the installation identity derived from the supplied secret. New deployments
+must apply `supabase/ingestion.sql` and verify the resulting permissions.
+Earlier uploads may have been publicly accessible; access restrictions cannot
+undo any prior disclosure.
 
 Uploaded rows currently have no automatic expiration and are retained until
 the developer removes them or the database policy changes.
@@ -129,8 +137,9 @@ public build. Forks can blank the Supabase constants in
   IP addresses in the `price_history` table.
 - **Payment or financial information** — no card numbers, bank details,
   invoices, or transaction records.
-- **Authentication data** — no passwords, cookies, session tokens, or
-  login state.
+- **Retailer authentication data** — no retailer passwords, cookies, session
+  tokens, or login state. The extension uses its own installation secret for
+  upload authorization, as described above.
 - **Browsing history outside the supported sites** — product observations
   are recorded and uploaded only for supported store pages. URL-change
   events outside the supported domains may be visible to the service worker
@@ -148,10 +157,9 @@ public build. Forks can blank the Supabase constants in
 
 **Local data:**
 
-- Open the popup → **Data** tab → **"Clear all history"** to remove indexed
-  product records. A known race with simultaneous page tracking can leave an
-  orphaned storage key; close supported product tabs and repeat if storage
-  usage does not fall as expected.
+- Open the popup → **Data** tab → **"Clear all history"** to remove all local
+  product records, including orphaned keys. Other preferences and the upload
+  identity remain. Supported pages visited afterward can record new history.
 - **"Cleanup old"** removes whole products not seen for at least 90 days.
 - Uninstalling the extension from `chrome://extensions/` removes all
   local data.
@@ -163,10 +171,11 @@ extension generates locally, the developer cannot identify which rows
 belong to you without you sending the device ID first. To request
 removal of uploaded observations from your install, email the contact
 address below and include your device ID (find it in your browser's
-DevTools console under `chrome.storage.local` → `supabase_device_id`).
-Concurrent first-run uploads can currently generate a transient second device
-ID before one is persisted. Rows written under that lost ID cannot be located
-from the retained ID; this must be fixed before public release.
+DevTools under `chrome.storage.local` → `supabase_identity.deviceId`).
+For observations made by older builds, also include `supabase_device_id` when
+present. Never share `supabase_identity.secret`. Concurrent initialization is
+serialized in this build. Old uploads made under an ID lost by a previous build
+cannot be reconstructed from the retained ID alone.
 
 ## Export and import
 
@@ -177,18 +186,19 @@ created and read only on your computer, by your own action; they are
 never uploaded anywhere by the extension.
 
 On import, the extension validates that every product URL belongs to one of
-the 20 supported store domains and accepts thumbnail URLs only when they are
-syntactically valid `https://` URLs. Any HTTPS host is allowed, and the popup
-will request that image when rendering the imported product, so only trusted
-backup files should be imported. Products with invalid store URLs or without
-any valid history row are skipped; a non-HTTPS thumbnail is removed while the
-rest of an otherwise valid product is kept. The importer has no file-size cap,
-is not transactional, and can partially replace existing records before a
-later storage error is reported.
+the 20 supported store domains. Imported thumbnail URLs are discarded to prevent
+untrusted backups from triggering image tracking requests. Images refresh on the
+next retailer visit. Products with invalid store URLs or without any valid history
+row are skipped. Imports are limited to 10 MB. IDs must match the product URL (with an
+explicit allowance for legacy SportDepot keys). Valid daily rows are sorted
+and duplicate days use the last supplied value. All accepted records and their
+index are written in one batch; a rejected quota write leaves existing records
+intact. Settings, targets, and upload credentials are not changed.
 
 ## Permissions explained
 
 - `storage` — to save the price history locally
+- `alarms` — to retry locally queued uploads every five minutes; it does not poll retailer pages
 - `tabs` — to detect when you navigate between product pages on
   single-page-app sites (so the chart updates without a hard reload)
 - Host access to the 20 supported store domains — to read product

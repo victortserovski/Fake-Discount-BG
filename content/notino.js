@@ -114,25 +114,8 @@
         const wrapperEl = document.querySelector('[data-testid="pd-price-wrapper"]');
         if (wrapperEl) price = parseEurFromText(wrapperEl.textContent);
       }
-      // Last-resort fallback: pick the highest EUR-priced offer in JSON-LD
-      // matching the current URL. We pick the highest because JSON-LD often
-      // reflects the promo-code price; the highest-of-set is closest to the
-      // regular displayed price for the selected variant.
-      if (price == null && productLd && productLd.offers) {
-        const offers = Array.isArray(productLd.offers) ? productLd.offers : [productLd.offers];
-        const eurOffers = offers.filter(o =>
-          (o.priceCurrency || '').toUpperCase() === 'EUR' && !isOfferOutOfStock(o)
-        );
-        if (eurOffers.length > 0) {
-          const here = window.location.pathname;
-          const matching = eurOffers.filter(o => offerPathname(o.url) === here);
-          const pool = matching.length > 0 ? matching : eurOffers;
-          const numeric = pool
-            .map(o => parseFloat(o.price))
-            .filter(p => Number.isFinite(p) && p > 0);
-          if (numeric.length > 0) price = Math.max(...numeric);
-        }
-      }
+      // JSON-LD may contain a coupon price or another variant. No price is
+      // safer than recording an amount absent from the visible product block.
 
       // Skip recording for out-of-stock variants. Notino's JSON-LD keeps a
       // stale `price` on OutOfStock offers (the last-known list price), and
@@ -141,13 +124,16 @@
       // actually buy at, polluting both the local history and any future
       // cloud sync. Returning price=null lets ContentScriptBase.trackAndDisplay
       // render the widget with existing history without saving a new entry.
+      let unavailable = false;
       if (productLd && productLd.offers) {
         const offers = Array.isArray(productLd.offers) ? productLd.offers : [productLd.offers];
         const matched = offers.find(o => offerMatchesPage(o.url));
         if (matched && isOfferOutOfStock(matched)) {
           price = null;
+          unavailable = true;
         }
       }
+      if (price == null && !unavailable) return null;
 
       // Original price: Notino does not consistently expose a struck-through
       // "was" price for its products (the EU-mandated "lowest 30-day" line is

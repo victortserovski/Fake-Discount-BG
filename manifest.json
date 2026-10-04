@@ -1,11 +1,12 @@
 {
   "manifest_version": 3,
   "name": "Fake Discount Bulgaria - Catch Faked Sales",
-  "version": "3.16.4",
+  "version": "3.17.0",
   "description": "Tracks daily price history and shows heuristic deal signals on product pages across 20 Bulgarian online stores.",
   "permissions": [
     "storage",
-    "tabs"
+    "tabs",
+    "alarms"
   ],
   "host_permissions": [
     "https://emag.bg/*",

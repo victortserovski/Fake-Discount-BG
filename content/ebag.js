@@ -29,7 +29,14 @@
   }
 
   function isDomOos() {
-    const root = document.querySelector('[data-page-name="productPage"], #store-root');
+    const page = document.querySelector('[data-page-name="productPage"], #store-root');
+    const heading = page?.querySelector('h1');
+    if (heading && /не\s*е\s*наличен|изчерпан|няма\s*наличност/i.test(heading.textContent || '')) return true;
+    const root = page && Array.from(page.querySelectorAll('[data-product-id]')).find(el => {
+      try {
+        return new URL(el.getAttribute('data-product-id'), window.location.origin).pathname === window.location.pathname;
+      } catch (_) { return false; }
+    });
     if (!root) return false;
     for (const el of root.querySelectorAll('.sr-only, [class*="sr-only"], [class*="visually-hidden"]')) {
       if (/не\s*е\s*наличен|изчерпан|няма\s*наличност/i.test(el.textContent || '')) return true;

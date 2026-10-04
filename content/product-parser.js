@@ -78,12 +78,10 @@ class ProductParser {
         return `decathlon_${decathlonMatch[1]}`;
       }
 
-      // Sport Depot: /product/<slug>-<id>-basic.html?i=<variantId>
-      // Prefer the stable slug numeric id over ?i= when both are present —
-      // ?i= is a colour/size variant key that changes per selection while
-      // the slug id is the canonical product bucket; using ?i= alone split
-      // the same shoe into multiple storage keys.
-      const sportdepotSlugIdMatch = url.match(/sportdepot\.bg\/product\/[^/]+-(\d+)-basic\.html/i);
+      // Keep model + colour together, never just a common suffix like 101.
+      // Other slug shapes retain their existing full-slug keys. Ambiguous
+      // historical numeric keys are preserved separately, never auto-merged.
+      const sportdepotSlugIdMatch = url.match(/sportdepot\.bg\/product\/[^/]*-N_([^/?#]+-\d+)-basic\.html/i);
       if (sportdepotSlugIdMatch) {
         return `sportdepot_${sportdepotSlugIdMatch[1]}`;
       }
@@ -169,22 +167,26 @@ class ProductParser {
   static parsePrice(priceText) {
     if (!priceText) return null;
 
-    let cleaned = priceText.trim();
+    // Select one amount before removing currencies; never concatenate EUR/BGN.
+    const text = String(priceText).trim();
+    const amount = text.match(/(\d[\d\s\u00A0.,]*)\s*(?:EUR|€)/i)
+      || text.match(/\d[\d\s\u00A0.,]*/);
+    if (!amount) return null;
+    let cleaned = (amount[1] || amount[0]).replace(/[\s\u00A0]+/g, '');
 
     // Remove currency symbols and text, keep numbers, spaces, commas, dots
     // Use [\s\u00A0] to also match non-breaking spaces common in Bulgarian price formatting
     cleaned = cleaned.replace(/[^\d,\s\u00A0.]+/g, '').trim();
 
-    // Detect format: if it has both comma and dot, dot is decimal, comma is thousand separator
-    // If only comma, it's decimal separator
-    // If only dot, it's decimal separator
+    // With both separators present, the last one is the decimal separator.
     const hasComma = cleaned.includes(',');
     const hasDot = cleaned.includes('.');
 
     if (hasComma && hasDot) {
-      // Format like "1 199,00" or "1.199,00" - comma is decimal
-      // Remove dots (they're thousand separators), replace comma with dot
-      cleaned = cleaned.replace(/\./g, '').replace(',', '.');
+      // Accept both 1.199,00 and 1,199.00.
+      cleaned = cleaned.lastIndexOf(',') > cleaned.lastIndexOf('.')
+        ? cleaned.replace(/\./g, '').replace(',', '.')
+        : cleaned.replace(/,/g, '');
     } else if (hasComma && !hasDot) {
       // Format like "999,00" - comma is decimal
       cleaned = cleaned.replace(',', '.');
@@ -290,6 +292,11 @@ class ProductParser {
       if (!el) continue;
       const v = (el.getAttribute('content') || el.textContent || '').trim().replace(/\s+/g, '');
       if (v && ProductParser.validateGTIN(v)) return v;
+    }
+    // Custom product components can expose the barcode directly (Technomarket).
+    for (const el of root.querySelectorAll('[ean]')) {
+      const candidate = (el.getAttribute('ean') || '').trim();
+      if (ProductParser.validateGTIN(candidate)) return candidate;
     }
 
     // Tier 4: visible-DOM text scan

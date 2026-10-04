@@ -17,13 +17,15 @@ const ContentScriptBase = {
     },
 
     // Show error in widget container
-    showWidgetError(container) {
+    async showWidgetError(container) {
         while (container.firstChild) {
             container.removeChild(container.firstChild);
         }
         const errorDiv = document.createElement('div');
         errorDiv.style.cssText = 'padding: 20px; background: rgba(254, 226, 226, 0.9); border: 1px solid #fcc; border-radius: 12px; color: #c00; text-align: center;';
-        errorDiv.textContent = 'Error loading widget';
+        const translations = window.i18n;
+        if (translations) await translations.loadTranslations();
+        errorDiv.textContent = translations ? translations.t('errorLoadingWidget') : '';
         container.appendChild(errorDiv);
     },
 
@@ -58,15 +60,26 @@ const ContentScriptBase = {
     // Initialize widget directly (scripts loaded via manifest.json content_scripts)
     async loadWidgetScripts(widgetContainer, product, analysis) {
         try {
+            if (product.url && window.location.href !== product.url) {
+                widgetContainer.remove();
+                return;
+            }
+            // Retailer submit controls must never own our target input.
+            const form = widgetContainer.closest('form');
+            if (form) {
+                let outerForm = form;
+                while (outerForm.parentElement?.closest('form')) outerForm = outerForm.parentElement.closest('form');
+                outerForm.parentNode.insertBefore(widgetContainer, outerForm.nextSibling);
+            }
             if (typeof FakeDiscountWidget === 'undefined' || !FakeDiscountWidget.init) {
                 console.error('[Fake Discount] FakeDiscountWidget not available');
-                this.showWidgetError(widgetContainer);
+                await this.showWidgetError(widgetContainer);
                 return;
             }
             await FakeDiscountWidget.init(widgetContainer, product, analysis);
         } catch (error) {
             console.error('[Fake Discount] Widget init error:', error);
-            this.showWidgetError(widgetContainer);
+            await this.showWidgetError(widgetContainer);
         }
     },
 
@@ -115,12 +128,16 @@ const ContentScriptBase = {
         // with "Extension context invalidated".
         if (!this.isContextValid()) return;
 
+        const startedUrl = window.location.href;
+        const isCurrent = () => this.isContextValid() && window.location.href === startedUrl && isProductPage();
+        if (!isCurrent()) return;
         if (options.enableStorageKey) {
             const enabled = await this.checkSiteEnabled(options.enableStorageKey);
             if (!enabled) return;
         }
 
         const productData = await extractProductData();
+        if (!isCurrent()) return;
 
         // Empty-state analysis used when there is no usable price (e.g. an
         // out-of-stock variant) or the background failed to record. Mirrors
@@ -136,7 +153,11 @@ const ContentScriptBase = {
             reasonParams: { current: 0, needed: 7 }
         };
 
-        if (!productData || !productData.price) {
+        if (!productData) {
+            await injectWidget({ history: [], url: startedUrl }, { ...emptyAnalysis, reasonKey: 'extractionFailed', reasonParams: {} });
+            return;
+        }
+        if (!productData.price) {
             const oosProduct = {
                 history: [],
                 url: window.location.href,
@@ -158,6 +179,7 @@ const ContentScriptBase = {
 
         try {
             const response = await this.trackProduct(productData);
+            if (!isCurrent()) return;
             if (response && response.success) {
                 await injectWidget(response.product, response.analysis);
             } else {
@@ -167,16 +189,17 @@ const ContentScriptBase = {
                     title: productData.title,
                     url: productData.url,
                     id: productData.id
-                }, emptyAnalysis);
+                }, { ...emptyAnalysis, reasonKey: 'trackingFailed', reasonParams: {} });
             }
         } catch (error) {
+            if (!isCurrent()) return;
             await injectWidget({
                 history: [],
                 site: productData.site,
                 title: productData.title,
                 url: productData.url,
                 id: productData.id
-            }, emptyAnalysis);
+            }, { ...emptyAnalysis, reasonKey: 'trackingFailed', reasonParams: {} });
         }
     },
 

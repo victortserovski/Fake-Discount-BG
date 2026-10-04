@@ -408,6 +408,11 @@
         }
       };
 
+      const saveTarget = async (value) => {
+        const response = await chrome.runtime.sendMessage({ action: 'setPriceTarget', productId: productKey, value });
+        if (!response?.success) throw new Error('Target save failed');
+      };
+
       // Load existing target. Read the new id-keyed value first, fall
       // back to the legacy url-keyed value (and migrate it). Targets
       // set before v3.15.11 were keyed by `product.url`; we move them
@@ -420,9 +425,7 @@
         if (existing == null && legacyUrlKey && legacyUrlKey !== productKey && targets[legacyUrlKey] != null) {
           // Migrate legacy URL-keyed target → productId key.
           existing = targets[legacyUrlKey];
-          targets[productKey] = existing;
-          delete targets[legacyUrlKey];
-          await chrome.storage.local.set({ priceTargets: targets });
+          await saveTarget(existing);
         }
         if (existing != null) {
           input.value = existing;
@@ -435,11 +438,7 @@
         if (!targetPrice || targetPrice <= 0) {
           // Clear target — also clear any legacy URL-keyed entry.
           try {
-            const result = await chrome.storage.local.get(['priceTargets']);
-            const targets = result.priceTargets || {};
-            delete targets[productKey];
-            if (legacyUrlKey && legacyUrlKey !== productKey) delete targets[legacyUrlKey];
-            await chrome.storage.local.set({ priceTargets: targets });
+            await saveTarget(null);
             renderStatus(null);
             input.value = '';
             // Re-render chart so the target line disappears.
@@ -449,15 +448,7 @@
         }
 
         try {
-          const result = await chrome.storage.local.get(['priceTargets']);
-          const targets = result.priceTargets || {};
-          targets[productKey] = targetPrice;
-          // If a legacy URL-keyed entry still exists for this product,
-          // remove it so we don't have two copies under different keys.
-          if (legacyUrlKey && legacyUrlKey !== productKey && targets[legacyUrlKey] != null) {
-            delete targets[legacyUrlKey];
-          }
-          await chrome.storage.local.set({ priceTargets: targets });
+          await saveTarget(targetPrice);
           renderStatus(targetPrice);
 
           // Flash confirmation
@@ -473,7 +464,11 @@
 
       // Also set on Enter key
       input.addEventListener('keydown', (e) => {
-        if (e.key === 'Enter') btn.click();
+        if (e.key === 'Enter') {
+          e.preventDefault();
+          e.stopPropagation();
+          btn.click();
+        }
       });
     },
 

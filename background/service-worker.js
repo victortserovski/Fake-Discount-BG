@@ -13,6 +13,7 @@
 // don't have this failure mode.
 try {
   importScripts(chrome.runtime.getURL('utils/storage.js'));
+  importScripts(chrome.runtime.getURL('content/product-parser.js'));
 } catch (e) {
   console.error('[Fake Discount] Failed to load storage.js:', e);
 }
@@ -53,9 +54,18 @@ async function initStorageManager() {
 // Initialize on startup
 initStorageManager();
 
+// Alarms restart a suspended worker and retry observations saved while offline.
+chrome.alarms.onAlarm.addListener(alarm => {
+  if (alarm.name === 'retryPriceUploads') SupabaseSync.flushPending();
+});
+chrome.alarms.get('retryPriceUploads').then(alarm => {
+  if (!alarm) return chrome.alarms.create('retryPriceUploads', { periodInMinutes: 5 });
+}).catch(error => console.warn('[Fake Discount] Upload retry alarm unavailable:', error.message));
+
 // Notify content scripts when a tab's URL changes (for SPA navigation detection)
 chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
   if (changeInfo.url) {
+    chrome.action.setBadgeText({ text: '', tabId }).catch(() => {});
     chrome.tabs.sendMessage(tabId, { action: 'urlChanged', url: changeInfo.url }).catch(() => {});
   }
 });
@@ -96,7 +106,8 @@ const POPUP_ONLY_ACTIONS = new Set([
 
 const CONTENT_SCRIPT_ACTIONS = new Set([
   'trackProduct',
-  'getProductAnalysis'
+  'getProductAnalysis',
+  'setPriceTarget'
 ]);
 
 const ALLOWED_EXTENSION_URL_PREFIXES = ['ui/', 'i18n/', 'icons/'];
@@ -148,6 +159,21 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   if (request.action === 'trackProduct') {
     handleProductTracking(request.data, sendResponse, sender);
     return true; // Indicates we will send a response asynchronously
+  }
+
+  if (request.action === 'setPriceTarget') {
+    (async () => {
+      try {
+        const url = sender.url || sender.tab.url;
+        if (!isSupportedProductUrl(url) || request.productId !== ProductParser.extractProductId(url)
+          || (request.value !== null && (!Number.isFinite(request.value) || request.value <= 0 || request.value > 1000000))) {
+          throw new Error('invalidTarget');
+        }
+        await storageManager.setPriceTarget(request.productId, url, request.value);
+        sendResponse({ success: true });
+      } catch (error) { sendResponse({ success: false, error: error.message }); }
+    })();
+    return true;
   }
 
   if (request.action === 'getProductAnalysis') {
@@ -314,8 +340,10 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
           return;
         }
 
+        if (JSON.stringify(products).length > 10 * 1024 * 1024) throw new Error('importTooLarge');
         let imported = 0;
         let skipped = 0;
+        const batch = Object.create(null);
         for (const [productId, productData] of Object.entries(products)) {
           if (!isValidImportedProduct(productId, productData)) {
             skipped++;
@@ -323,9 +351,10 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
           }
           // Sanitize: keep only fields we know about, drop bad history rows.
           const cleaned = sanitizeImportedProduct(productData);
-          await storageManager.importProduct(productId, cleaned);
+          batch[productId] = cleaned;
           imported++;
         }
+        if (imported) await storageManager.importProducts(batch);
         sendResponse({ success: true, imported, skipped });
       } catch (e) {
         console.error('Error importing:', e);
@@ -352,20 +381,6 @@ function isSupportedProductUrl(url) {
   }
 }
 
-// Returns true iff the thumbnail URL is a plain https:// link. We can't
-// restrict thumbnails to the store domain (most products serve images
-// from CDNs like cdn.ozone.bg, fdcdn.akamaized.net) so we only enforce
-// the scheme — no `javascript:`, `data:`, or `http:` URLs.
-function isSafeThumbnailUrl(url) {
-  if (typeof url !== 'string' || !url) return false;
-  try {
-    const u = new URL(url);
-    return u.protocol === 'https:';
-  } catch (_) {
-    return false;
-  }
-}
-
 // Validate that an imported product has the minimum required shape AND
 // that its URL belongs to a supported store domain.
 function isValidImportedProduct(productId, p) {
@@ -376,20 +391,28 @@ function isValidImportedProduct(productId, p) {
   // against malicious backup files that could otherwise inject arbitrary
   // navigation targets (popup opens product.url with chrome.tabs.create).
   if (!isSupportedProductUrl(p.url)) return false;
+  const canonicalId = ProductParser.extractProductId(p.url);
+  const legacySportId = p.url.match(/sportdepot\.bg\/product\/[^/]+-(\d+)-basic\.html/i);
+  if (productId !== canonicalId && !(legacySportId && productId === `sportdepot_${legacySportId[1]}`)) return false;
   // At least one history row must be a valid {date, price} entry.
   return p.history.some(h =>
     h && typeof h === 'object' &&
-    typeof h.date === 'string' && !isNaN(new Date(h.date).getTime()) &&
+    isValidHistoryDate(h.date) &&
     typeof h.price === 'number' && isFinite(h.price) && h.price > 0
   );
 }
 
+function isValidHistoryDate(date) {
+  return typeof date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(date)
+    && !isNaN(new Date(date).getTime()) && new Date(date).toISOString().slice(0, 10) === date;
+}
+
 // Strip unknown fields and drop malformed history rows from imported data.
 function sanitizeImportedProduct(p) {
-  const history = p.history
+  const rows = p.history
     .filter(h =>
       h && typeof h === 'object' &&
-      typeof h.date === 'string' && !isNaN(new Date(h.date).getTime()) &&
+      isValidHistoryDate(h.date) &&
       typeof h.price === 'number' && isFinite(h.price) && h.price > 0
     )
     .map(h => ({
@@ -398,18 +421,21 @@ function sanitizeImportedProduct(p) {
       originalPrice: typeof h.originalPrice === 'number' && isFinite(h.originalPrice) ? h.originalPrice : null,
       discount: typeof h.discount === 'number' && isFinite(h.discount) ? h.discount : null
     }));
+  // Last supplied value wins for duplicate days; stored history is chronological.
+  const history = Array.from(new Map(rows.map(row => [row.date, row])).values())
+    .sort((a, b) => a.date.localeCompare(b.date));
 
   return {
     // URL has already passed `isSupportedProductUrl` in the validator.
     url: typeof p.url === 'string' ? p.url : '',
     title: typeof p.title === 'string' ? p.title : '',
-    site: ['emag','ozone','notino','technopolis','technomarket','zora','ardes','plesio','aboutyou','answear','decathlon','dm','fashiondays','lilly','bricolage','obuvki','praktiker','sopharmacy','sportdepot','ebag'].includes(p.site) ? p.site : 'emag',
-    // Thumbnails come from many merchant CDNs; we can only require https://.
-    thumbnail: isSafeThumbnailUrl(p.thumbnail) ? p.thumbnail : null,
-    ean: typeof p.ean === 'string' && /^\d{8,14}$/.test(p.ean) ? p.ean : null,
+    site: ProductParser.extractProductId(p.url).split('_')[0],
+    // Backups are untrusted: refresh images from the retailer on the next visit.
+    thumbnail: null,
+    ean: ProductParser.validateGTIN(p.ean) ? p.ean : null,
     history: history,
-    firstSeen: typeof p.firstSeen === 'string' ? p.firstSeen : history[0]?.date || '',
-    lastUpdated: typeof p.lastUpdated === 'string' ? p.lastUpdated : history[history.length - 1]?.date || '',
+    firstSeen: history[0]?.date || '',
+    lastUpdated: history[history.length - 1]?.date || '',
     isActive: p.isActive !== false
   };
 }
@@ -429,6 +455,10 @@ async function handleProductTracking(productData, sendResponse, sender) {
 
   try {
     const productId = productData.id;
+    if (!isSupportedProductUrl(productData.url) || ProductParser.extractProductId(productData.url) !== productId
+      || !Number.isFinite(productData.price) || productData.price <= 0 || productData.price > 1000000) {
+      throw new Error('invalidProduct');
+    }
 
     // Determine site from URL or productId
     const site = productData.site || (
@@ -495,8 +525,13 @@ async function handleProductTracking(productData, sendResponse, sender) {
       history: product.history || []
     });
 
-    // Set badge on extension icon based on verdict
+    let badgeIsCurrent = false;
     try {
+      badgeIsCurrent = (await chrome.tabs.get(sender.tab.id)).url === productData.url;
+    } catch (_) { /* Tab was closed or navigated away. */ }
+
+    // Set badge on extension icon based on verdict
+    if (badgeIsCurrent) try {
       const tabId = sender?.tab?.id;
       if (analysis.verdict === 'FAKE_DISCOUNT') {
         chrome.action.setBadgeText({ text: '!', tabId });
@@ -515,7 +550,7 @@ async function handleProductTracking(productData, sendResponse, sender) {
     // other tabs). Read by productId first (canonical, since v3.15.11),
     // fall back to the URL key for targets set on older versions that
     // haven't been migrated yet.
-    try {
+    if (badgeIsCurrent) try {
       const tabId = sender?.tab?.id;
       const targetResult = await chrome.storage.local.get(['priceTargets']);
       const targets = targetResult.priceTargets || {};

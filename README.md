@@ -4,9 +4,9 @@
 
 A Manifest V3 Chrome/Edge extension with adapters for 20 Bulgarian e-commerce sites (Emag.bg, Ozone.bg, Notino.bg, Technopolis.bg, Technomarket.bg, Zora.bg, Ardes.bg, Plesio.bg, Aboutyou.bg, Answear.bg, Decathlon.bg, dm-drogeriemarkt.bg, Fashiondays.bg, Lillydrogerie.bg, Mr-bricolage.bg, Obuvki.bg, Praktiker.bg, Sopharmacy.bg, Sportdepot.bg, eBag.bg). It records a daily EUR price snapshot when you visit a supported, enabled product page and renders local price-history charts plus heuristic deal signals directly on the page.
 
-> **Pre-release status:** the 15 July 2026 audit found public Supabase access,
-> adapter correctness bugs, and reproduced storage/import races that must be
-> fixed before distribution. See [composer 2.5 multi agent audit.md](composer%202.5%20multi%20agent%20audit.md).
+The configured Supabase project uses the restricted ingestion function in
+[supabase/ingestion.sql](supabase/ingestion.sql). New deployments must apply it
+and run [supabase/verify-ingestion.sql](supabase/verify-ingestion.sql).
 
 **Repository:** https://github.com/victortserovski/Fake-Discount-BG
 **Privacy policy:** [PRIVACY.md](PRIVACY.md)
@@ -15,13 +15,13 @@ A Manifest V3 Chrome/Edge extension with adapters for 20 Bulgarian e-commerce si
 
 - **Visit-triggered Tracking**: A valid purchasable price is recorded automatically when you visit an enabled, supported product page (no manual watchlist needed; one local snapshot per product per day)
 - **Integrated Display**: Price graph and history-based deal analysis displayed directly on product pages
-- **Verdict System**: Shows the heuristic states "Fake discount", "Real deal", "Volatile price", "Stable price", or "Tracking" with the observations behind the result
-- **Extension Badge**: Per-tab icon badge — "!" for fake discounts, "✓" for real deals, 🎯 when a price target is hit (target badge overrides the verdict badge on that tab)
+- **Verdict System**: Shows the heuristic states "Check the discount", "Low observed price", "Volatile price", "Stable price", or "Tracking" with the observations behind the result
+- **Extension Badge**: Per-tab icon badge — "!" for discounts needing review, "✓" for favorable observed prices, 🎯 when a price target is hit (target badge overrides the verdict badge on that tab)
 - **Price Targets**: Set a target on any product; the chart shows a horizontal target line, the popup marks active targets, and the current tab badge/pill changes when a visited price reaches the target. There is no background polling or browser notification.
 - **Clickable Product List**: Click any product in the popup to open its page
 - **Bilingual Support**: Bulgarian (default) and English, with localized date formatting in the chart
-- **Export/Import**: Export and import price-history product records as JSON with field-level validation (settings and price targets are not included; import is not transactional)
-- **EAN/GTIN tracking**: When a product's barcode is exposed and recognized, it is stored alongside price history and can be searched or copied from the popup. Saved fixtures confirm extraction on **Notino, Obuvki, Zora, dm-drogeriemarkt, and Answear**, with occasional description-based coverage on **Praktiker** and **Mr.Bricolage**. Technomarket fixtures expose EAN attributes that the current generic extractor does not yet read. Cross-store matching is a future feature.
+- **Export/Import**: Export and import price-history product records as JSON with field-level validation (settings and price targets are not included; valid records and their index are committed in one storage batch). Imported image URLs are discarded; images refresh on the next retailer visit.
+- **EAN/GTIN tracking**: Validated barcodes can be searched or copied in the popup. The generic extractor checks JSON-LD, meta, microdata, custom EAN attributes (including Technomarket), and labelled text. Cross-store matching is a future feature.
 - **Last-seen indicator**: Each product card shows when it was last refreshed ("updated today / yesterday / N days ago") so stale entries are easy to spot
 - **Keyboard shortcut**: Press `Ctrl+Shift+F` (or `⌘+Shift+F` on Mac) to open the popup. Customisable at `chrome://extensions/shortcuts`
 - **Persisted filters**: Site-filter chips and sort selection survive popup close/reopen (the search box is intentionally cleared each time)
@@ -49,8 +49,8 @@ A Manifest V3 Chrome/Edge extension with adapters for 20 Bulgarian e-commerce si
    - Overall pricing stability/volatility
 
 3. Verdict System:
-   - **FAKE DISCOUNT** (red): A warning signal — the claimed "original" price exceeds observed history, or the current price is well above the 30-day low. The second rule can fire even when no seller discount is shown.
-   - **REAL DEAL** (green): A favorable observed price — near the tracked low, or (when no seller "was" price is shown) materially below the historical average
+   - **CHECK THE DISCOUNT** (red): A claimed discount conflicts with observed history. Requires a seller was-price greater than the current price and enough observations; this is a reason to check, not proof of deception.
+   - **NEAR OBSERVED LOW** (green): A favorable observed price — near the tracked low, or (when no seller "was" price is shown) materially below the historical average. A flat history is classified as stable
    - **VOLATILE PRICE** (orange): Price has fluctuated by 8%+ across the last 30 days — wait for a low point
    - **STABLE PRICE** (yellow): Price has been confirmed stable over 7+ price observations AND the 30-day range is tight (< 8% of average)
    - **TRACKING** (gray): Still gathering data — fewer than 7 price observations (`insufficientData` reason), or 7+ observations with no rule matched yet (`noPatternMatch` reason)
@@ -63,8 +63,7 @@ A Manifest V3 Chrome/Edge extension with adapters for 20 Bulgarian e-commerce si
 
 - Uses Chrome local storage (limit ~10MB)
 - Per-product keys for O(1) read/write performance
-- Per-product writes are serialized during ordinary tracking; the current
-  audit found separate migration and clear-all races that still need repair
+- Per-product write queues share a mutation queue with migration, bulk import, deletion, and target edits. Startup reconciles orphaned product keys without deleting their history
 - **Recorded daily snapshots are not compressed or automatically evicted.**
   They remain until manual deletion, extension removal, or Chrome's local
   storage quota is reached.
@@ -104,7 +103,7 @@ target is set.
 **Data tab**
 - Storage usage bar + tracked-product count
 - Export/import price-history product records as JSON (settings and price targets are not included; malformed product rows are skipped)
-- Delete products not seen for 90+ days, or clear all indexed history
+- Delete products not seen for 90+ days, or clear all product history, including previously orphaned records
 
 A persistent footer at the bottom of every tab shows total tracked count and
 storage usage at a glance.
@@ -136,9 +135,21 @@ of truth; the network push never blocks the widget render. Upload is deduplicate
 `(device_id, product_id, observed_date)` so repeated visits within the
 same day don't bloat the dataset.
 
-The current database policy exposes reads through the bundled public anon
-key. This must be replaced with a controlled write path and direct table
-access must be revoked before public distribution; see the audit report.
+Pending uploads are stored per product/day and retried by a five-minute Chrome
+alarm, including after a worker restart. A newer visit replaces that day's pending
+snapshot; acknowledgement removes only the matching queued version. Network
+failures retain the queue. Local storage failure or termination before enqueue
+can still prevent an upload; cloud ingestion does not replace local backups.
+The `alarms` permission is used only for upload retries, not retailer polling.
+
+The client calls only the write-only `ingest_price_observation` RPC. Deploy
+`supabase/ingestion.sql` to revoke direct anonymous/authenticated table access.
+The RPC derives the device ID from a random installation secret and accepts
+updates only within that identity; timestamps prevent older requests overwriting
+newer observations. The secret is retained locally and sent over HTTPS only to
+this endpoint. The client never falls back to direct table writes. Until the
+SQL is deployed, uploads remain queued while local tracking continues. The RPC bounds and validates
+input; it is not a substitute for deployment-level anti-abuse/rate controls.
 
 Developers cloning this repo for their own fork can blank both constants
 to disable the upload (it then becomes a silent no-op). Do not copy the
@@ -153,6 +164,7 @@ legacy allow-all anon table policies for a production dataset.
 - Product identification uses site-specific URL-derived keys; EAN/GTIN is
   captured separately when available
 - All prices are displayed in EUR regardless of language setting
+- Historical SportDepot keys that could combine multiple models remain separate. New observations use full model/colour IDs; ambiguous old data is not guessed, merged, or deleted.
 
 ## Not implemented yet
 
@@ -161,27 +173,32 @@ legacy allow-all anon table policies for a production dataset.
   matched or compared across stores.
 - Price targets are checked when a product is visited; there are no proactive
   background or operating-system alerts.
-- The tracked repository has no automated test runner. Saved-page replay
-  tools and HTML fixtures are local development material and are gitignored.
 
 ## For developers / AI agents
 
-See [CLAUDE.md](CLAUDE.md) for general behavioral guidelines plus this project's
+See [AGENTS.md](AGENTS.md) for general behavioral guidelines plus this project's
 specific rules (version-bump policy, conventions, where things live).
+
+Run `npm install` then `npm test` for the maintained deterministic regression suite.
+Saved retailer HTML remains local and optional; synthetic regressions run without it.
+For the optional Chrome form test, install Playwright or set `PLAYWRIGHT_MODULE`
+to an existing installation, then run `node --test tests/widget-browser.cjs`.
+`node --test tests/cloud-access.cjs` checks the configured live server without
+creating observations; SQL verification uses a rollback-only transaction.
+Saved-page tests do not certify live hydration and every variant across all 20 stores.
 
 ## Packaging for distribution
 
 When zipping the extension for the Chrome Web Store or sideloading, exclude
 these files so they don't ship to users:
 
-- `test/` — manual test suite, not used at runtime
+- `tests/`, `supabase/`, `node_modules/`, `package*.json` — development and deployment files
 - `HTML pages and links/` — saved reference HTML samples used while writing
   the content scripts (32 MB of dev-only material, gitignored)
-- `Emag.bg html.txt`, `Ozone.bg html.txt` — early saved-page reference dumps
-- `GPT 5.5 audit.md`, `composer 2.5 multi agent audit.md`, `AGENTS.md` — internal AI-agent / audit notes
-- `promo-small-440x280.png` — Chrome Web Store promo asset, uploaded
+- `AGENTS.md` — development rules
+- `icons/promo-small-440x280.png` — Chrome Web Store promo asset, uploaded
   separately via the Developer Dashboard (not part of the extension)
-- `CLAUDE.md` — internal AI-agent rules
+- `CLAUDE.md` — pointer to the shared development rules
 - `PRIVACY.md` — keep in the repo for the Web Store listing link, but the
   zip itself doesn't need to ship it
 - `README.md` — optional, the Web Store listing already describes the extension

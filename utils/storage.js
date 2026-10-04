@@ -32,6 +32,7 @@
         // Serializes product_index read-modify-write so concurrent new-product /
         // import / delete ops can't drop IDs from the index.
         this._indexQueue = Promise.resolve();
+        this._mutationQueue = Promise.resolve();
       }
 
       // Serialize product_index RMW operations.
@@ -43,73 +44,48 @@
         return current;
       }
 
-      async _drainQueues() {
-        const pending = [
-          ...this._writeQueue.values(),
-          this._indexQueue
-        ];
-        await Promise.all(pending.map(p => p.catch(() => {})));
+      // All mutations share an admission queue, including clear and bulk import.
+      _withMutationLock(fn) {
+        const current = this._mutationQueue.catch(() => {}).then(fn);
+        this._mutationQueue = current;
+        return current;
       }
 
-      // Ensure migration has completed before any operation
-      async ensureMigrated() {
-        if (this._migrationPromise) {
-          return this._migrationPromise;
+      ensureMigrated() {
+        if (!this._migrationPromise) {
+          // Publish the promise before the first storage read yields.
+          this._migrationPromise = this._migrateFromOldFormat().catch(error => {
+            this._migrationPromise = null;
+            throw error;
+          });
         }
-
-        const result = await chrome.storage.local.get([MIGRATION_FLAG]);
-        if (result[MIGRATION_FLAG]) {
-          return true;
-        }
-
-        this._migrationPromise = this._migrateFromOldFormat();
         return this._migrationPromise;
       }
 
-      // Migrate from old monolithic format to per-product keys
       async _migrateFromOldFormat() {
-        try {
-          const result = await chrome.storage.local.get([OLD_STORAGE_KEY]);
-          const oldProducts = result[OLD_STORAGE_KEY];
-
-          if (!oldProducts || Object.keys(oldProducts).length === 0) {
-            // No old data, just mark as migrated
-            await chrome.storage.local.set({ [MIGRATION_FLAG]: true });
-            return true;
+        const stored = await chrome.storage.local.get(null);
+        const changes = {};
+        const old = !stored[MIGRATION_FLAG] && stored[OLD_STORAGE_KEY];
+        if (old) {
+          for (const [id, product] of Object.entries(old)) {
+            // Existing per-product data wins; never overwrite a newer record.
+            if (!stored[PRODUCT_PREFIX + id]) changes[PRODUCT_PREFIX + id] = product;
           }
-
-          console.log(`[PriceStorageManager] Migrating ${Object.keys(oldProducts).length} products to new format...`);
-
-          // Build new storage structure
-          const newData = {};
-          const productIds = [];
-
-          for (const [productId, productData] of Object.entries(oldProducts)) {
-            const key = PRODUCT_PREFIX + productId;
-            newData[key] = productData;
-            productIds.push(productId);
-          }
-
-          // Add index and migration flag
-          newData[INDEX_KEY] = productIds;
-          newData[MIGRATION_FLAG] = true;
-
-          // Write all new keys
-          await chrome.storage.local.set(newData);
-
-          // Remove old monolithic key
-          await chrome.storage.local.remove([OLD_STORAGE_KEY]);
-
-          console.log('[PriceStorageManager] Migration complete');
-          return true;
-        } catch (error) {
-          console.error('[PriceStorageManager] Migration failed:', error);
-          return false;
         }
+        const products = { ...stored, ...changes };
+        changes[INDEX_KEY] = Object.keys(products).filter(key =>
+          key.startsWith(PRODUCT_PREFIX) && products[key] && Array.isArray(products[key].history)
+        ).map(key => key.slice(PRODUCT_PREFIX.length));
+        changes[MIGRATION_FLAG] = true;
+        // Also repairs orphaned product records left by earlier versions.
+        await chrome.storage.local.set(changes);
+        if (stored[OLD_STORAGE_KEY]) await chrome.storage.local.remove([OLD_STORAGE_KEY]);
+        return true;
       }
 
       // Get product index (list of all product IDs)
       async getProductIndex() {
+        await this._mutationQueue.catch(() => {});
         await this.ensureMigrated();
         const result = await chrome.storage.local.get([INDEX_KEY]);
         return result[INDEX_KEY] || [];
@@ -117,6 +93,7 @@
 
       // Get all products (for popup display, export, etc.)
       async getAllProducts() {
+        await this._mutationQueue.catch(() => {});
         await this.ensureMigrated();
 
         const index = await this.getProductIndex();
@@ -142,6 +119,7 @@
 
       // Get a specific product - O(1) operation
       async getProduct(productId) {
+        await this._mutationQueue.catch(() => {});
         await this.ensureMigrated();
         const key = PRODUCT_PREFIX + productId;
         const result = await chrome.storage.local.get([key]);
@@ -157,7 +135,7 @@
         const previousWrite = this._writeQueue.get(key) || Promise.resolve();
         const currentWrite = previousWrite
           .catch(() => {}) // don't let a previous failure poison the chain
-          .then(() => this._saveProductInternal(productId, productData));
+          .then(() => this._withMutationLock(() => this._saveProductInternal(productId, productData)));
 
         this._writeQueue.set(key, currentWrite);
 
@@ -258,7 +236,7 @@
         const previousWrite = this._writeQueue.get(key) || Promise.resolve();
         const currentWrite = previousWrite
           .catch(() => {})
-          .then(() => this._importProductInternal(productId, productData));
+          .then(() => this._withMutationLock(() => this._importProductInternal(productId, productData)));
 
         this._writeQueue.set(key, currentWrite);
 
@@ -272,17 +250,35 @@
       }
 
       async _importProductInternal(productId, productData) {
-        const key = PRODUCT_PREFIX + productId;
+        return this._importProductsInternal({ [productId]: productData });
+      }
 
-        await chrome.storage.local.set({ [key]: productData });
+      async importProducts(products) {
+        await this.ensureMigrated();
+        return this._withMutationLock(() => this._importProductsInternal(products));
+      }
 
-        await this._withIndexLock(async () => {
-          const result = await chrome.storage.local.get([INDEX_KEY]);
-          const index = result[INDEX_KEY] || [];
-          if (!index.includes(productId)) {
-            index.push(productId);
-            await chrome.storage.local.set({ [INDEX_KEY]: index });
-          }
+      async _importProductsInternal(products) {
+        const stored = await chrome.storage.local.get([INDEX_KEY]);
+        const index = new Set(stored[INDEX_KEY] || []);
+        const changes = {};
+        for (const [id, product] of Object.entries(products)) {
+          changes[PRODUCT_PREFIX + id] = product;
+          index.add(id);
+        }
+        changes[INDEX_KEY] = Array.from(index);
+        // One Chrome storage batch: quota validation precedes committing values.
+        await chrome.storage.local.set(changes);
+      }
+
+      async setPriceTarget(productId, legacyUrl, value) {
+        return this._withMutationLock(async () => {
+          const result = await chrome.storage.local.get(['priceTargets']);
+          const targets = result.priceTargets || {};
+          if (value == null) delete targets[productId];
+          else targets[productId] = value;
+          if (legacyUrl && legacyUrl !== productId) delete targets[legacyUrl];
+          await chrome.storage.local.set({ priceTargets: targets });
         });
       }
 
@@ -294,7 +290,7 @@
         const previousWrite = this._writeQueue.get(key) || Promise.resolve();
         const currentWrite = previousWrite
           .catch(() => {})
-          .then(() => this._deleteProductInternal(productId));
+          .then(() => this._withMutationLock(() => this._deleteProductInternal(productId)));
 
         this._writeQueue.set(key, currentWrite);
 
@@ -315,14 +311,12 @@
           return false;
         }
 
+        const idxResult = await chrome.storage.local.get([INDEX_KEY]);
+        const index = (idxResult[INDEX_KEY] || []).filter(id => id !== productId);
+        // Remove the record value and its index entry in one batch. A worker
+        // interruption before removing the empty key cannot resurrect its data.
+        await chrome.storage.local.set({ [key]: null, [INDEX_KEY]: index });
         await chrome.storage.local.remove([key]);
-
-        await this._withIndexLock(async () => {
-          const idxResult = await chrome.storage.local.get([INDEX_KEY]);
-          const index = idxResult[INDEX_KEY] || [];
-          const newIndex = index.filter(id => id !== productId);
-          await chrome.storage.local.set({ [INDEX_KEY]: newIndex });
-        });
 
         return true;
       }
@@ -330,14 +324,12 @@
       // Clear all history
       async clearAll() {
         await this.ensureMigrated();
-        await this._drainQueues();
-
-        const index = await this.getProductIndex();
-        const keys = index.map(id => PRODUCT_PREFIX + id);
-        keys.push(INDEX_KEY);
-
-        await chrome.storage.local.remove(keys);
-        await chrome.storage.local.set({ [INDEX_KEY]: [] });
+        return this._withMutationLock(async () => {
+          const stored = await chrome.storage.local.get(null);
+          const keys = Object.keys(stored).filter(key => key.startsWith(PRODUCT_PREFIX));
+          keys.push(INDEX_KEY);
+          await chrome.storage.local.remove(keys);
+        });
       }
 
       // Get today's date in YYYY-MM-DD format using LOCAL time, not UTC.

@@ -114,7 +114,8 @@ if (typeof window !== 'undefined') {
         this.svg.appendChild(chartGroup);
 
         // Filter valid data points
-        const validData = this.data.filter(d => d && typeof d.price === 'number' && !isNaN(d.price) && d.date);
+        const validData = this.data.filter(d => d && Number.isFinite(d.price) && d.price > 0 && !isNaN(new Date(d.date).getTime()))
+          .sort((a, b) => new Date(a.date) - new Date(b.date));
         if (validData.length === 0) {
           // Still create empty chart structure for consistency
           console.warn('AdvancedChart: No valid data points, creating empty chart');
@@ -125,13 +126,18 @@ if (typeof window !== 'undefined') {
         // Minimum 2 points needed for line/area, but we can show a single point
 
         const prices = validData.map(d => d.price);
-        const minPrice = Math.min(...prices);
-        const maxPrice = Math.max(...prices);
+        const low = Math.min(...prices);
+        const high = Math.max(...prices);
+        const padding = low === high ? Math.max(low * 0.01, 0.01) : 0;
+        const minPrice = Math.max(0, low - padding);
+        const maxPrice = high + padding;
         const priceRange = maxPrice - minPrice || 1;
 
         // Scale functions
         const dataLength = validData.length;
-        const xScale = (index) => dataLength > 1 ? (index / (dataLength - 1)) * chartWidth : 0;
+        const dates = validData.map(point => new Date(point.date).getTime());
+        const dateSpan = dates[dataLength - 1] - dates[0];
+        const xScale = (index) => dateSpan > 0 ? ((dates[index] - dates[0]) / dateSpan) * chartWidth : 0;
         const yScale = (price) => chartHeight - ((price - minPrice) / priceRange) * chartHeight;
 
         this._validData = validData;
@@ -254,7 +260,7 @@ if (typeof window !== 'undefined') {
           ? 0
           : Math.floor((i / (dateSteps - 1)) * (data.length - 1));
         if (index >= data.length || !data[index] || !data[index].date) continue;
-        const x = data.length > 1 ? (index / (data.length - 1)) * width : 0;
+        const x = this._xScale(index);
         const date = new Date(data[index].date);
 
         const label = document.createElementNS('http://www.w3.org/2000/svg', 'text');

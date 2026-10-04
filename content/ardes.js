@@ -71,7 +71,7 @@
     integer.childNodes.forEach(n => {
       if (n.nodeType === Node.TEXT_NODE) intText += n.textContent;
     });
-    const text = intText.trim() + (decimal ? (decimal.textContent || '').trim() : '');
+    const text = intText.replace(/[^\d\s]/g, '').trim() + (decimal ? (decimal.textContent || '').trim() : '');
     return ProductParser.parsePrice(text);
   }
 

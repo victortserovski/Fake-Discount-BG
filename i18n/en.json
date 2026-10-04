@@ -1,6 +1,6 @@
 {
-  "fakeDiscount": "Fake discount",
-  "realDeal": "Real deal",
+  "fakeDiscount": "Check the discount",
+  "realDeal": "Near observed low",
   "storage": "Storage",
   "error": "Error",
   "errorLoading": "Error loading",
@@ -21,8 +21,8 @@
   "currency": "EUR",
   "willAppear": "will appear here",
   "verdicts": {
-    "FAKE_DISCOUNT": "FAKE DISCOUNT",
-    "REAL_DEAL": "REAL DEAL",
+    "FAKE_DISCOUNT": "CHECK THE DISCOUNT",
+    "REAL_DEAL": "LOW OBSERVED PRICE",
     "STABLE_PRICE": "STABLE PRICE",
     "VOLATILE_PRICE": "VOLATILE PRICE",
     "TRACKING": "TRACKING"
@@ -47,11 +47,13 @@
     "priceHigherThanMax": "The claimed \"original\" price ({originalPrice}) is {percentage}% higher than the highest price we've observed ({maxPrice}) across {observations} observations ({days} days of tracking) — the discount may be misleading.",
     "priceHigherThan30DayLow": "Current price ({currentPrice}) is {percentage}% above the lowest price in the last 30 days ({minPrice}) based on {observations} observations ({days} days of tracking).",
     "belowAverage": "Current price ({currentPrice}) is {percentage}% below the average ({avgPrice}) across {observations} observations ({days} days of tracking).",
-    "atAllTimeLow": "Current price ({currentPrice}) is at or near the lowest we've observed ({minPrice}) across {observations} observations ({days} days of tracking) — a genuinely good offer.",
+    "atAllTimeLow": "The current price {currentPrice} is near the observed low of {minPrice} ({observations} observations over {days} days). This is a pricing signal, not a guarantee of the best offer.",
     "stablePrice": "Price has remained stable through the last 30 days based on {observations} observations ({days} days of tracking).",
     "volatilePrice": "Price has varied by {percentage}% across {observations} observations ({days} days of tracking) — it may be worth waiting for a better offer.",
     "insufficientData": "At least {needed} price observations needed for a reliable verdict ({current}/{needed} so far).",
-    "noPatternMatch": "Price is being tracked ({observations} observations over {days} days) but no discount pattern matched yet."
+    "noPatternMatch": "Price is being tracked ({observations} observations over {days} days) but no discount pattern matched yet.",
+    "extractionFailed": "The price could not be read. Refresh the page.",
+    "trackingFailed": "The price was not saved. Check extension storage usage and try again."
   },
   "settings": {
     "title": "Settings",
@@ -170,6 +172,6 @@
     "chartRenderFailed": "Error rendering chart"
   },
   "data": {
-    "importSummary": "{imported} imported, {skipped} skipped as invalid"
+    "importSummary": "{imported} imported, {skipped} skipped as invalid. Images refresh on the next retailer visit."
   }
 }

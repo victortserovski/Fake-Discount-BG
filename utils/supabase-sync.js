@@ -1,168 +1,116 @@
-// Supabase sync — best-effort write-through of every recorded price datapoint
-// to a remote Postgres table. Local chrome.storage remains the source of truth;
-// network errors here MUST NOT block the local save or the widget render.
-//
-// SETUP (one-time, in Supabase dashboard):
-//   1. Create a project, copy Project URL + anon public key into the constants
-//      below.
-//   2. SQL editor — run:
-//        create table public.price_history (
-//          id            bigserial primary key,
-//          device_id     uuid not null,
-//          product_id    text not null,
-//          site          text not null,
-//          url           text not null,
-//          title         text,
-//          thumbnail     text,
-//          ean           text,
-//          price         numeric(10,2) not null,
-//          original_price numeric(10,2),
-//          discount      int,
-//          observed_at   timestamptz not null default now(),
-//          observed_date date not null,
-//          ext_version   text,
-//          user_agent    text
-//        );
-//        create unique index price_history_dedup_idx
-//          on public.price_history (device_id, product_id, observed_date);
-//        create index price_history_product_idx
-//          on public.price_history (product_id, observed_date desc);
-//        alter table public.price_history enable row level security;
-//        -- Tables created via SQL Editor do NOT auto-grant to anon/
-//        -- authenticated — explicit grants are required (Supabase 2026+ default).
-//        grant select on public.price_history to anon;
-//        grant select, insert, update, delete on public.price_history
-//          to authenticated;
-//        grant select, insert, update, delete on public.price_history
-//          to service_role;
-//        create policy "anon can insert" on public.price_history
-//          for insert to anon with check (true);
-//        create policy "anon can update" on public.price_history
-//          for update to anon using (true) with check (true);
-//        create policy "anon can select" on public.price_history
-//          for select to anon using (true);
-//        -- Upsert from the extension requires BOTH:
-//        --   ?on_conflict=device_id,product_id,observed_date  (query param)
-//        --   Prefer: resolution=merge-duplicates               (header)
-//        -- Without the query param PostgREST targets the primary key (id) and
-//        -- same-day re-visits bounce off price_history_dedup_idx with 409.
-//   3. Add the project host to manifest.json host_permissions:
-//        "https://<project>.supabase.co/*"
-//   4. Reload the extension at chrome://extensions/.
-//
-// Until both constants are filled in, pushDatapoint() is a silent no-op.
-
+// Best-effort write-only RPC ingestion. Deploy supabase/ingestion.sql first.
+// Local history remains authoritative; never fall back to direct table writes.
 (function () {
   'use strict';
-
-  // === CONFIGURE THESE TWO ===
   const SUPABASE_URL = 'https://gdfsqujcjqktjhhgkxbs.supabase.co';
   const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImdkZnNxdWpjanFrdGpoaGdreGJzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzgyNjUyNzIsImV4cCI6MjA5Mzg0MTI3Mn0.zstsdOtjfoPxG3t0e6M1IpYtCEZ4ISbNgpQ31-eGNeM';
-  // ===========================
+  let identityPromise = null;
+  let lastObservationTime = 0;
+  let queueWrites = Promise.resolve();
+  let flushPromise = null;
+  const PENDING_PREFIX = 'sync_pending_';
 
-  const DEVICE_ID_KEY = 'supabase_device_id';
-  let cachedDeviceId = null;
-  let warnedNotConfigured = false;
-
-  function isConfigured() {
-    return Boolean(SUPABASE_URL && SUPABASE_ANON_KEY);
+  function withQueueLock(operation) {
+    const pending = queueWrites.then(operation);
+    queueWrites = pending.catch(() => {});
+    return pending;
   }
 
-  // RFC 4122 v4 UUID using crypto.getRandomValues (available in service workers).
-  function generateUuid() {
-    const bytes = new Uint8Array(16);
-    crypto.getRandomValues(bytes);
-    bytes[6] = (bytes[6] & 0x0f) | 0x40;
-    bytes[8] = (bytes[8] & 0x3f) | 0x80;
-    const hex = Array.from(bytes, b => b.toString(16).padStart(2, '0'));
-    return (
-      hex.slice(0, 4).join('') + '-' +
-      hex.slice(4, 6).join('') + '-' +
-      hex.slice(6, 8).join('') + '-' +
-      hex.slice(8, 10).join('') + '-' +
-      hex.slice(10, 16).join('')
-    );
-  }
+  function isConfigured() { return Boolean(SUPABASE_URL && SUPABASE_ANON_KEY); }
 
-  async function getDeviceId() {
-    if (cachedDeviceId) return cachedDeviceId;
-    const result = await chrome.storage.local.get([DEVICE_ID_KEY]);
-    if (result[DEVICE_ID_KEY]) {
-      cachedDeviceId = result[DEVICE_ID_KEY];
-      return cachedDeviceId;
+  function getIdentity() {
+    if (!identityPromise) {
+      identityPromise = (async () => {
+        const result = await chrome.storage.local.get(['supabase_identity']);
+        if (result.supabase_identity) return result.supabase_identity;
+        const bytes = crypto.getRandomValues(new Uint8Array(32));
+        const secret = Array.from(bytes, b => b.toString(16).padStart(2, '0')).join('');
+        const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(secret));
+        const hex = Array.from(new Uint8Array(digest), b => b.toString(16).padStart(2, '0')).join('').slice(0, 32);
+        const deviceId = [hex.slice(0,8), hex.slice(8,12), hex.slice(12,16), hex.slice(16,20), hex.slice(20)].join('-');
+        const identity = { deviceId, secret };
+        // Retain supabase_device_id for deletion requests concerning old uploads.
+        await chrome.storage.local.set({ supabase_identity: identity });
+        return identity;
+      })().catch(error => { identityPromise = null; throw error; });
     }
-    const uuid = generateUuid();
-    await chrome.storage.local.set({ [DEVICE_ID_KEY]: uuid });
-    cachedDeviceId = uuid;
-    return uuid;
+    return identityPromise;
   }
 
-  function getExtVersion() {
-    try {
-      return chrome.runtime.getManifest().version;
-    } catch (e) {
-      return null;
-    }
-  }
+  async function getDeviceId() { return (await getIdentity()).deviceId; }
 
-  // Best-effort fire-and-forget POST. Failures are logged once and swallowed.
   async function pushDatapoint(entry) {
-    if (!isConfigured()) {
-      if (!warnedNotConfigured) {
-        console.log('[Fake Discount] Supabase sync disabled (URL/key not set).');
-        warnedNotConfigured = true;
-      }
-      return;
-    }
+    if (!isConfigured()) return;
+    // Assigned before any await so concurrent calls retain observation order.
+    lastObservationTime = Math.max(Date.now(), lastObservationTime + 1);
+    const observedAt = new Date(lastObservationTime).toISOString();
     try {
-      const deviceId = await getDeviceId();
-      const body = {
-        device_id: deviceId,
-        product_id: entry.productId,
-        site: entry.site,
-        url: entry.url,
-        title: entry.title || null,
-        thumbnail: entry.thumbnail || null,
-        ean: entry.ean || null,
-        price: entry.price,
-        original_price: typeof entry.originalPrice === 'number' ? entry.originalPrice : null,
-        discount: typeof entry.discount === 'number' ? entry.discount : null,
-        observed_date: entry.date,
-        ext_version: getExtVersion(),
-        user_agent: (typeof navigator !== 'undefined' && navigator.userAgent) || null
+      const url = new URL(entry.url);
+      url.search = '';
+      url.hash = '';
+      const payload = {
+        product_id: entry.productId, site: entry.site, url: url.href,
+        title: entry.title || null, thumbnail: entry.thumbnail || null, ean: entry.ean || null,
+        price: entry.price, original_price: entry.originalPrice ?? null, discount: entry.discount ?? null,
+        observed_date: entry.date, client_observed_at: observedAt,
+        ext_version: chrome.runtime.getManifest().version,
+        user_agent: typeof navigator !== 'undefined' ? navigator.userAgent : null
       };
-      // PostgREST upsert requires BOTH:
-      //   1. ?on_conflict=<columns> query param — tells it which unique
-      //      index to use as the conflict target. Without this it defaults
-      //      to the primary key (id, a bigserial that never conflicts), so
-      //      same-day re-visits fall through to a plain INSERT and bounce
-      //      off the price_history_dedup_idx unique constraint with 23505.
-      //   2. Prefer: resolution=merge-duplicates header — tells it to do
-      //      ON CONFLICT DO UPDATE (instead of DO NOTHING).
-      const res = await fetch(`${SUPABASE_URL}/rest/v1/price_history?on_conflict=device_id,product_id,observed_date`, {
-        method: 'POST',
-        headers: {
-          'apikey': SUPABASE_ANON_KEY,
-          'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
-          'Content-Type': 'application/json',
-          'Prefer': 'resolution=merge-duplicates,return=minimal'
-        },
-        body: JSON.stringify(body)
+      await withQueueLock(async () => {
+        const saved = await chrome.storage.local.get(['supabase_last_observation']);
+        lastObservationTime = Math.max(Date.parse(observedAt), (saved.supabase_last_observation || 0) + 1);
+        payload.client_observed_at = new Date(lastObservationTime).toISOString();
+        const key = PENDING_PREFIX + entry.productId + ':' + entry.date;
+        await chrome.storage.local.set({ [key]: payload, supabase_last_observation: lastObservationTime });
       });
-      if (!res.ok) {
-        const text = await res.text().catch(() => '');
-        console.warn('[Fake Discount] Supabase push failed:', res.status, text);
-      }
-    } catch (e) {
-      console.warn('[Fake Discount] Supabase push error:', e);
+      await flushPending();
+    } catch (error) {
+      console.warn('[Fake Discount] Secure upload unavailable:', error.message);
     }
   }
 
-  // Expose for the service worker. importScripts() runs in the SW global scope.
-  const _scope = (typeof self !== 'undefined') ? self : globalThis;
-  _scope.SupabaseSync = {
-    pushDatapoint,
-    getDeviceId,
-    isConfigured
-  };
+  function flushPending() {
+    if (!isConfigured()) return Promise.resolve();
+    if (flushPromise) return flushPromise;
+    flushPromise = (async () => {
+      const identity = await getIdentity();
+      const pending = await withQueueLock(async () => {
+        const data = await chrome.storage.local.get(null);
+        return Object.entries(data).filter(([key]) => key.startsWith(PENDING_PREFIX))
+          .sort((a, b) => (a[1]._lastAttempt || 0) - (b[1]._lastAttempt || 0));
+      });
+      // Bound each worker run; keep rejected entries without blocking later ones.
+      for (const [key, payload] of pending.slice(0, 20)) {
+        const observation = { ...payload };
+        delete observation._lastAttempt;
+        const res = await fetch(SUPABASE_URL + '/rest/v1/rpc/ingest_price_observation', {
+          method: 'POST',
+          headers: { apikey: SUPABASE_ANON_KEY, Authorization: 'Bearer ' + SUPABASE_ANON_KEY, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ installation_secret: identity.secret, observation }),
+          signal: AbortSignal.timeout(15000)
+        });
+        if (!res.ok) {
+          if (res.status >= 500 || res.status === 429 || res.status === 408) throw new Error('HTTP ' + res.status);
+          console.warn('[Fake Discount] Observation remains queued:', res.status);
+          await withQueueLock(async () => {
+            const current = (await chrome.storage.local.get([key]))[key];
+            if (current?.client_observed_at === payload.client_observed_at) {
+              await chrome.storage.local.set({ [key]: { ...current, _lastAttempt: Date.now() } });
+            }
+          });
+          continue;
+        }
+        await withQueueLock(async () => {
+          const current = (await chrome.storage.local.get([key]))[key];
+          // A newer visit may have replaced this queued day during the request.
+          if (current?.client_observed_at === payload.client_observed_at) await chrome.storage.local.remove([key]);
+        });
+      }
+    })().catch(error => console.warn('[Fake Discount] Upload remains queued:', error.message))
+      .finally(() => { flushPromise = null; });
+    return flushPromise;
+  }
+
+  const scope = typeof self !== 'undefined' ? self : globalThis;
+  scope.SupabaseSync = { pushDatapoint, flushPending, getDeviceId, isConfigured };
 })();

@@ -1,8 +1,6 @@
 // Content script for Fashion Days (fashiondays.bg)
 // Server-rendered. Reliable schema.org Product JSON-LD with EUR price.
-// Visible was-price lives at `.cmmp30-price` (the EU-mandated 30-day low),
-// not a true crossed-out previous selling price — leave originalPrice
-// to the visible struck-through `.rrp-price` instead.
+// Exclude the 30-day reference and any ПЦД-labelled manufacturer reference.
 (async function () {
   const settings = await chrome.storage.local.get(['enableFashiondays']);
   if (settings.enableFashiondays === false) return;
@@ -52,6 +50,8 @@
   function readRrpPrice() {
     const oldEl = document.querySelector('.rrp-price, .old-price__value');
     if (!oldEl) return null;
+    // ПЦД is the manufacturer's reference, even when visually struck through.
+    if (/ПЦД|ПЦ/.test((oldEl.closest('.rrp-wrapper') || oldEl).textContent)) return null;
     let attr = oldEl.getAttribute('data-rrp-price');
     if (!attr) {
       const wrapper = oldEl.closest('.rrp-wrapper');
@@ -127,7 +127,7 @@
         if (offer && /OutOfStock/i.test(offer.availability || '')) price = null;
       }
 
-      // Was-price: prefer the struck-through `.rrp-price` (real previous
+      // Was-price: accept an unlabelled struck-through price (previous
       // selling price). Skip the `.cmmp30-price` slot — that's the
       // EU-mandated lowest-30-day reference, not a was-price.
       let originalPrice = readRrpPrice();

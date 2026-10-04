@@ -80,12 +80,12 @@ function detectFakeDiscount(productData) {
   };
 
   // VERDICT 1: FAKE DISCOUNT (RED)
-  // Condition: currentPrice > 30-day minimum * 1.1 OR originalPrice > historicalMax * 1.2
+  // Both comparisons require an actual claimed discount (original > current).
   // NOTE: requires history.length >= 7 — with fewer entries, the "historical
   // maximum" is just the price we observed today and the seller's "original"
   // claim is unverifiable. Without this guard the verdict fires on the very
   // first visit, mislabeling unknown products as fake discounts.
-  if (originalPrice && history.length >= 7 && originalPrice > allTimeHigh * 1.2) {
+  if (originalPrice > currentPrice && history.length >= 7 && originalPrice > allTimeHigh * 1.2) {
     const percentage = Math.round(((originalPrice - allTimeHigh) / allTimeHigh) * 100);
     return {
       result: 'fake_discount',
@@ -106,7 +106,7 @@ function detectFakeDiscount(productData) {
     };
   }
 
-  if (currentPrice > thirtyDayLow * 1.1 && recentHistory.length >= 7) {
+  if (originalPrice > currentPrice && currentPrice > thirtyDayLow * 1.1 && recentHistory.length >= 7) {
     const percentage = Math.round(((currentPrice - thirtyDayLow) / thirtyDayLow) * 100);
     return {
       result: 'fake_discount',
@@ -128,13 +128,13 @@ function detectFakeDiscount(productData) {
   }
 
   // VERDICT 2: REAL DEAL (GREEN)
-  // Condition: currentPrice <= allTimeLow * 1.05 (within 5% of all-time low)
-  if (currentPrice <= allTimeLow * 1.05 && history.length >= 7) {
+  // Within 5% of the observed low, with a non-flat history (range > 5%).
+  if (currentPrice <= allTimeLow * 1.05 && history.length >= 7 && allTimeHigh > allTimeLow * 1.05) {
     const percentage = Math.round(((allTimeLow - currentPrice) / allTimeLow) * 100);
     return {
       result: 'real_deal',
       verdict: 'REAL_DEAL',
-      confidence: Math.min(80 + (5 - percentage) * 4, 100),
+      confidence: Math.min(history.length * 3, 90),
       reasonKey: 'atAllTimeLow',
       reasonParams: {
         percentage: Math.max(0, percentage),

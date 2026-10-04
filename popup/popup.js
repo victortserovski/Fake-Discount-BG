@@ -890,6 +890,7 @@
     if (!file) return;
 
     try {
+      if (file.size > 10 * 1024 * 1024) throw new Error('importTooLarge');
       const text = await file.text();
       const data = JSON.parse(text);
 
