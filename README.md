@@ -180,7 +180,9 @@ See [AGENTS.md](AGENTS.md) for general behavioral guidelines plus this project's
 specific rules (version-bump policy, conventions, where things live).
 
 Run `npm install` then `npm test` for the maintained deterministic regression suite.
-Saved retailer HTML remains local and optional; synthetic regressions run without it.
+Saved retailer HTML and supporting assets are included in `HTML pages and links/`
+for code analysis and fixture regressions. Synthetic regressions also run without them.
+Embedded Mapbox tokens are redacted from the reference captures.
 For the optional Chrome form test, install Playwright or set `PLAYWRIGHT_MODULE`
 to an existing installation, then run `node --test tests/widget-browser.cjs`.
 `node --test tests/cloud-access.cjs` checks the configured live server without
@@ -194,7 +196,7 @@ these files so they don't ship to users:
 
 - `tests/`, `supabase/`, `node_modules/`, `package*.json` — development and deployment files
 - `HTML pages and links/` — saved reference HTML samples used while writing
-  the content scripts (32 MB of dev-only material, gitignored)
+  the content scripts (tracked development fixtures, not extension runtime assets)
 - `AGENTS.md` — development rules
 - `icons/promo-small-440x280.png` — Chrome Web Store promo asset, uploaded
   separately via the Developer Dashboard (not part of the extension)

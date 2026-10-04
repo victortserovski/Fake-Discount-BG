@@ -18,6 +18,3 @@ yarn-error.log
 # Build artifacts / packaging
 *.zip
 FakeDiscountBG.zip
-
-# Local-only reference material — not part of the extension
-HTML pages and links/

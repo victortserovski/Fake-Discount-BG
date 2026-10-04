@@ -1,0 +1,173 @@
+var dmSettings = {
+"relativeUrlPrefixes": [
+window.location.origin
+],
+
+"rootLink": "",
+"locale": "bg_BG",
+"localeLanguage": "bg",
+"localeCountry": "BG",
+"siteSegment": "",
+"tenantId": "dm-shop-bg-bg",
+"environmentId": "prod",
+"stagingSystem": "prod",
+"mainApplicationUrl": "",
+"logging": {
+  "target": "datadog"
+}
+};
+
+dmSettings.toggles = {
+};
+
+var omApiSettings = {
+  "frontendTrackingInfraServiceUrl": "https://frontend-tracking-infra-service.services.dmtech.com",
+  "omApiVersion": "2026.507.7718",
+};
+var productConfig = {
+    "bypassSearch": false,
+    "productsGatewayUrl": "https://products.dm.de",
+    "productDataServiceInternalUrl": "https://pds-api-prod.apps.prod.gcp.dmtech.cloud",
+    "productDataServiceUrl": "https://products.dm.de/product",
+    "movaUrl": "https://products.dm.de/availability",
+    "laserUrl": "https://products.dm.de/availability-cart",
+    "sosUrl": "https://sos-prod.availability.services.dmtech.com",
+    "zoeUrl": "https://zoe-shop-proxy-prod.services.dmtech.com"
+}
+var productSearchConfig = {
+"productSearchServiceUrl": "https://product-search.services.dmtech.com"
+}
+var retailMediaConfig = {
+"retailMediaServiceUrl": "https://retail-media.services.dmtech.com"
+}
+var omApiExplicitFullPageLoad = true;
+
+var composingConfig = {
+  features: [
+  		"common",
+  		"content-common",
+  		"design-system",
+  		"dm",
+  		"om-api",
+  		"product-common",
+  		"productsearch-common",
+  		"retail-media-common",
+  		"security-txt",
+  		"stoerungsbanner",
+  		"storefinderWidget",
+  		"app-universal-links",
+  		"auth-common",
+  		"composing",
+  		"composing-dm",
+  		"credit",
+  		"form",
+  		"frame-footer",
+  		"frame-header",
+  		"frame-main-navigation",
+  		"frame-meta-navigation",
+  		"frame-scroll-depth",
+  		"frame-smartbanner",
+  		"frame-waves",
+  		"om-consent-ui",
+  		"search",
+  		"store-common",
+  		"storefinder",
+  		"web-performance",
+  		"authentication",
+  		"auth-api",
+  		"content-full",
+  		"content",
+  		"content-preview-full",
+  		"odt-flex",
+  		"om-components",
+  		"product",
+  		"product-api",
+  		"product-review",
+  		"productsearch",
+  		"retail-media",
+  		"shoppinglist",
+  		"accountwidget",
+  		"cart-common",
+  		"recommendation",
+  		"cart"
+  ],
+  "composerVersion": "2026.513.71256-1",
+  "toggleDetails": {
+  }
+}
+
+dmSettings.registerServiceWorker = true;
+var creditConfig = {
+"gatewayBaseUrl": "https://dmpay-gateway.services.dmtech.com",
+"creditCheckoutUrl": "https://giftcard-checkout.dm.de/api/checkout",
+"giftCardBuilderEmergencyDisableConfigUrl": "https://storage.googleapis.com/gift-card-builder-emergency-disabled-bucket/config.csv",
+}
+var formConfig = {
+"formuiJsPublicPath": "https://assets.dm.de/om/form/2026.418.6545/"
+}
+composingConfig.smartbanner=true;
+composingConfig.smartbannerTarget = "https://eqjg.adj.st/start?adj_t=1gk0arjf_1gsaut1y&adj_adgroup=BG&adj_deep_link=dm%3A%2F%2Fstart";
+var productSemanticSearchConfig = {
+"productSemanticSearchServiceUrl": "https://product-semantic-search.services.dmtech.com"
+}
+var storefinderConfig = {
+"storefinderJsPublicPath" : "https://assets.dm.de/storefinder/2026.513.126211/",
+"storeDataServiceUrl": "https://store-data-service.services.dmtech.com",
+"storeOrderServiceUrl": "https://store-order-service.services.dmtech.com"
+}
+var webPerformanceConfig = {}
+
+
+var authenticationSettings = {
+"accountUrl": "https://account.dm-drogeriemarkt.bg",
+"accountsUrl": "https://accounts.dm-drogeriemarkt.bg",
+"loginUrl": "https://signin.dm-drogeriemarkt.bg",
+"kubaServiceUrl": "https://kuba-prod.services.dmtech.com",
+"clientId": "webshop",
+"registerNavigationExtensions": true,
+"reviewAppAuth": false,
+}
+var contentConfig = {
+"rootContext": "rootpage-dm-shop-bg-bg",
+"cdn": true,
+"cdnBase": "https://editorial-content.dm-static.com",
+"contentBase": "https://content.services.dmtech.com",
+"contentSearchServiceUrl": "https://content-search-service.services.dmtech.com",
+"contentEnvironmentId": "",
+"contentSearchServiceCollection": "live",
+"notFoundIdentifier": "error_404",
+"targetSystem": "live",
+"assetsPath": "https://assets.dm.de/content-ui/1.2021.0",
+"routeEnabled": true,
+"breadcrumbsEnabled": true
+}
+var shoppinglistSettings = {
+	"shoppinglistServiceUrl": "https://shopping-list-prod.services.dmtech.com"
+}
+var accountWidgetSettings = {
+    accountUrl: "https://account.dm-drogeriemarkt.bg",
+    customerDataUrl: "https://zoe-shop-proxy-prod.services.dmtech.com/api/customer",    
+    registrationUrl: "https://signin.dm-drogeriemarkt.bg/dm-bg/registration/web-login/b2c",
+    shopUrl: "",
+    signinUrl: "https://signin.dm-drogeriemarkt.bg",
+    minimalShowFlyoutWidth: "s"
+};
+var cartConfig = {
+"cartUrl": "https://cartnext.services.dmtech.com",
+"deliveryTimesUrl": "https://assets.dm.de/deliverytimes"
+}
+var recoConfig = {
+	"productBasedRecosUrl": "https://product-based-recos.services.dmtech.com",
+	"myProductsUrl": "https://my-products-api.services.dmtech.com",
+	"recosAsAServiceUrl": "https://recos-as-a-service.services.dmtech.com",
+	"cartRecosUrl": "https://cart-recos.services.dmtech.com",
+	"paybackUrl": "https://account.dm-drogeriemarkt.bg/payback",
+	"predictiveShoppingUrl": "https://predictive-shopping-service.services.dmtech.com"
+}
+var checkoutSettings = {
+"checkoutUrl": "https://checkout.dm-drogeriemarkt.bg/1/view/known",
+"checkoutUrlGuest": "https://checkout.dm-drogeriemarkt.bg/1/view/guest",
+"checkoutNextUrl": "https://checkout.dm-drogeriemarkt.bg",
+"checkoutServiceUrl": "https://checkout-rls.apps.nonprod.gcp.dmtech.cloud"
+}
+

@@ -1,0 +1,77 @@
+/*! The license information is located in the file oss-licenses.txt, which can always be found in the directory of the respective version: https://assets.dm.de/<bundle>/<version>/oss-licenses.txt (e.g. https://assets.dm.de/composing/2024.12.21043/oss-licenses.txt).  */
+*, *::before, *::after {
+    box-sizing: border-box;
+}
+
+* {
+    outline-color: var(--palette-color2-hex);
+}
+
+body {
+    margin: 0;
+    font-family: dmbrand, Arial, Helvetica, sans-serif; /*/theme.typography.fontFamily.primary.main,*/
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+}
+
+/* DM font face - DMBrand */
+
+@font-face {
+    font-display: swap;
+    font-family: 'dmbrand';
+    font-style: normal;
+    font-weight: 300;
+    src: url(../fonts/DMBrand-Light.eot);
+    src: url(../fonts/DMBrand-Light.eot?#iefix) format('embedded-opentype'),
+    url(../fonts/DMBrand-Light.woff2) format('woff2'),
+    url(../fonts/DMBrand-Light.woff) format('woff'); /* ie11 */
+}
+
+@font-face {
+    font-display: swap;
+    font-family: 'dmbrand';
+    font-style: normal;
+    font-weight: 400;
+    src: url(../fonts/DMBrand-Regular.eot);
+    src: url(../fonts/DMBrand-Regular.eot?#iefix) format('embedded-opentype'),
+    url(../fonts/DMBrand-Regular.woff2) format('woff2'),
+    url(../fonts/DMBrand-Regular.woff) format('woff'); /* ie11 */
+}
+
+@font-face {
+    font-display: swap;
+    font-family: 'dmbrand';
+    font-style: normal;
+    font-weight: 500;
+    src: url(../fonts/DMBrand-Medium.eot);
+    src: url(../fonts/DMBrand-Medium.eot?#iefix) format('embedded-opentype'),
+    url(../fonts/DMBrand-Medium.woff2) format('woff2'),
+    url(../fonts/DMBrand-Medium.woff) format('woff'); /* ie11 */
+}
+
+@font-face {
+    font-display: swap;
+    font-family: 'dmbrand';
+    font-style: normal;
+    font-weight: 600;
+    src: url(../fonts/DMBrand-Medium.eot);
+    src: url(../fonts/DMBrand-Medium.eot?#iefix) format('embedded-opentype'),
+    url(../fonts/DMBrand-Medium.woff2) format('woff2'),
+    url(../fonts/DMBrand-Medium.woff) format('woff'); /* ie11 */
+}
+
+@font-face {
+    font-display: swap;
+    font-family: 'dmbrand';
+    font-style: normal;
+    font-weight: 700;
+    src: url(../fonts/DMBrand-Bold.eot);
+    src: url(../fonts/DMBrand-Bold.eot?#iefix) format('embedded-opentype'),
+    url(../fonts/DMBrand-Bold.woff2) format('woff2'),
+    url(../fonts/DMBrand-Bold.woff) format('woff'); /* ie11 */
+}
+
+[data-fontweight="bold"] * {
+    font-weight: 700 !important;
+}
+

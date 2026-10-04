@@ -1,0 +1,5 @@
+ReactInit.initReactComponent("composing-dm", "App", {}, document.getElementById("app"), "composingUi");
+if (('serviceWorker' in navigator) && (dmSettings.registerServiceWorker)) {
+	navigator.serviceWorker.register('/service-worker.js');
+}
+
