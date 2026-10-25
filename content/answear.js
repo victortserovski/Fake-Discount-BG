@@ -168,9 +168,21 @@
       }
       const discount = originalPrice ? ProductParser.calculateDiscount(originalPrice, price) : null;
 
+      // og:image is Answear's generic share logo (logo_share.ans.png); the
+      // product's own photo is the Product JSON-LD ImageObject's contentUrl.
       let thumbnail = null;
-      const og = document.querySelector('meta[property="og:image"]');
-      if (og && og.content) thumbnail = og.content;
+      for (const s of document.querySelectorAll('script[type="application/ld+json"]')) {
+        try {
+          const data = JSON.parse(s.textContent);
+          const product = (Array.isArray(data) ? data : [data]).find(c => c && c['@type'] === 'Product');
+          if (product) thumbnail = ProductParser.imageUrl(product.image);
+        } catch (_) { /* skip malformed JSON-LD */ }
+        if (thumbnail) break;
+      }
+      if (!thumbnail) {
+        const og = document.querySelector('meta[property="og:image"]');
+        if (og && og.content && !/logo_share/i.test(og.content)) thumbnail = og.content;
+      }
 
       // EAN — match active variant in SPA JSON (not first `"ean"` in doc order).
       let ean = extractAnswearVariantEAN(mainCard);
@@ -233,5 +245,5 @@
   });
   // React + scoped CSS Module hydration is slow on Answear.
   await new Promise(resolve => setTimeout(resolve, 2000));
-  if (isProductPage()) setTimeout(trackAndDisplay, 1000);
+  ContentScriptBase.whenProductPage(isProductPage, trackAndDisplay, 1000);
 })();

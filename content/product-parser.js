@@ -162,6 +162,31 @@ class ProductParser {
     }
   }
 
+  // Notino variant pages (/<brand>/<slug>/p-<id>/) belong to the family page
+  // /<brand>/<slug>/. Returns that family URL, or null for any other URL.
+  static familyProductUrl(url) {
+    const m = typeof url === 'string'
+      && url.match(/^(https:\/\/(?:www\.)?notino\.bg\/[^\/?#]+\/[^\/?#]+\/)p-\d+\/?(?:[?#].*)?$/i);
+    return m ? m[1] : null;
+  }
+
+  // A product ID is valid for a URL when the URL derives it, or when the
+  // URL's family page does (Notino single-variant pages keep the family ID).
+  static idMatchesUrl(id, url) {
+    if (typeof id !== 'string' || !id) return false;
+    if (id === ProductParser.extractProductId(url)) return true;
+    const family = ProductParser.familyProductUrl(url);
+    return !!family && id === ProductParser.extractProductId(family);
+  }
+
+  // JSON-LD `image` may be a URL, an ImageObject ({url} / {contentUrl}) or an
+  // array of either. Returns the first absolute http(s) URL, or null.
+  static imageUrl(value) {
+    const first = Array.isArray(value) ? value[0] : value;
+    const url = typeof first === 'string' ? first : (first && (first.url || first.contentUrl));
+    return typeof url === 'string' && /^https?:\/\//i.test(url) ? url : null;
+  }
+
   // Parse price from text
   // Handles formats: "999,00 лв.", "1 199.00 лв.", "510,78 €", "1 199,00 лв."
   static parsePrice(priceText) {
@@ -254,15 +279,19 @@ class ProductParser {
     const root = doc || document;
 
     // Tier 1: JSON-LD Product / ProductGroup (@graph + hasVariant)
+    const jsonLd = { ambiguous: false };
     try {
       const scripts = root.querySelectorAll('script[type="application/ld+json"]');
       for (const s of scripts) {
         let data;
         try { data = JSON.parse(s.textContent); } catch (_) { continue; }
-        const gtin = ProductParser._gtinFromJsonLdNode(data);
+        const gtin = ProductParser._gtinFromJsonLdNode(data, jsonLd);
         if (gtin) return gtin;
       }
     } catch (_) { /* fall through to next tier */ }
+    // A ProductGroup with several sizes and no selected one: any barcode the
+    // later tiers find would be just as arbitrary.
+    if (jsonLd.ambiguous) return null;
 
     // Tier 2: <meta> tags (Open Graph / product schema)
     const metaSelectors = [
@@ -329,17 +358,17 @@ class ProductParser {
     return null;
   }
 
-  static _gtinFromJsonLdNode(data) {
+  static _gtinFromJsonLdNode(data, state = {}) {
     if (!data || typeof data !== 'object') return null;
     if (Array.isArray(data)) {
       for (const el of data) {
-        const found = ProductParser._gtinFromJsonLdNode(el);
+        const found = ProductParser._gtinFromJsonLdNode(el, state);
         if (found) return found;
       }
       return null;
     }
     if (Array.isArray(data['@graph'])) {
-      const found = ProductParser._gtinFromJsonLdNode(data['@graph']);
+      const found = ProductParser._gtinFromJsonLdNode(data['@graph'], state);
       if (found) return found;
     }
     const type = data['@type'];
@@ -349,20 +378,38 @@ class ProductParser {
       if (gtin) return gtin;
     }
     if (types.includes('ProductGroup') && Array.isArray(data.hasVariant)) {
+      // Each size has its own barcode. Use the one variant the URL selects
+      // (e.g. About You's ?vid=) or the only barcode there is; a valid check
+      // digit does not make the first size the selected one.
+      const variants = [];
       for (const variant of data.hasVariant) {
         if (!variant || typeof variant !== 'object') continue;
-        const gtin = ProductParser._gtinFromProductFields(variant);
-        if (gtin) return gtin;
-        if (variant.offers) {
-          const offers = Array.isArray(variant.offers) ? variant.offers : [variant.offers];
-          for (const offer of offers) {
-            const offerGtin = ProductParser._gtinFromProductFields(offer);
-            if (offerGtin) return offerGtin;
-          }
-        }
+        const offers = variant.offers ? (Array.isArray(variant.offers) ? variant.offers : [variant.offers]) : [];
+        const gtin = ProductParser._gtinFromProductFields(variant)
+          || offers.map(o => ProductParser._gtinFromProductFields(o)).find(Boolean);
+        if (gtin) variants.push({ gtin, urls: [variant.url, ...offers.map(o => o && o.url)].filter(Boolean) });
+      }
+      const distinct = new Set(variants.map(v => v.gtin));
+      if (distinct.size === 1) return variants[0].gtin;
+      if (distinct.size > 1) {
+        const href = typeof location !== 'undefined' ? location.href : '';
+        const here = ProductParser._pageKey(href);
+        const selected = here && variants.find(v => v.urls.some(u => ProductParser._pageKey(u, href) === here));
+        if (selected) return selected.gtin;
+        state.ambiguous = true;
       }
     }
     return null;
+  }
+
+  // Path + query of a (possibly relative) URL, for matching a variant's URL.
+  static _pageKey(url, base) {
+    try {
+      const u = new URL(url, base);
+      return u.pathname.replace(/\/$/, '') + u.search;
+    } catch (_) {
+      return '';
+    }
   }
 
   // Wait for element to appear in DOM

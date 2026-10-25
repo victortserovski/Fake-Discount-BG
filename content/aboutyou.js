@@ -103,7 +103,7 @@
       const discount = originalPrice ? ProductParser.calculateDiscount(originalPrice, price) : null;
 
       let thumbnail = null;
-      if (ld && ld.image) thumbnail = Array.isArray(ld.image) ? ld.image[0] : ld.image;
+      if (ld && ld.image) thumbnail = ProductParser.imageUrl(ld.image);
       if (!thumbnail) {
         const og = document.querySelector('meta[property="og:image"]');
         if (og && og.content) thumbnail = og.content;
@@ -205,5 +205,5 @@
   });
   // React hydration delay before first extraction.
   await new Promise(resolve => setTimeout(resolve, 1500));
-  if (isProductPage()) setTimeout(trackAndDisplay, 1000);
+  ContentScriptBase.whenProductPage(isProductPage, trackAndDisplay, 1000);
 })();

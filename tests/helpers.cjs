@@ -29,7 +29,7 @@ function harness(initial = {}, hooks = {}) {
         getManifest: () => JSON.parse(read('manifest.json')),
         onMessage: { addListener: fn => listeners.push(fn) }
       },
-      tabs: { onUpdated: { addListener: fn => updates.push(fn) }, sendMessage: async () => {} },
+      tabs: { onUpdated: { addListener: fn => updates.push(fn) }, sendMessage: async () => {}, get: async id => ({ id, url: hooks.tabUrl || '' }) },
       action: { setBadgeText: async args => badges.push(args), setBadgeBackgroundColor: async () => {} }
     }
   });

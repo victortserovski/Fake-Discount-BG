@@ -61,6 +61,77 @@ test('shared widget loader relocates a target input outside retailer forms',asyn
   assert.equal(parentForm,null);
 });
 
+const ld=data=>'<script type="application/ld+json">'+JSON.stringify(data)+'</script>';
+function baseContext(location={href:'https://www.technopolis.bg/bg/x/p/1'}){
+  const {document,window}=parseHTML('<html><body></body></html>');window.location=location;
+  const sent=[];
+  const context=vm.createContext({window,document,location,setTimeout,console:{warn(){},error(){},log(){}},
+    chrome:{runtime:{id:'test',sendMessage:(req,cb)=>{sent.push(req.data);cb({success:true,product:req.data,analysis:{}});}}}});
+  vm.runInContext(read('content/content-base.js'),context);
+  return {base:context.window.ContentScriptBase,sent,location};
+}
+
+test('Technopolis flags JSON-LD for another product as a pending route',async()=>{
+  const page=ld({'@type':'Product',sku:'513560',name:'Nokia',offers:{price:'23.90',priceCurrency:'EUR'}});
+  const stale=await setup('technopolis',page,'https://www.technopolis.bg/bg/x/p/577791');
+  assert.equal((await stale.context.__adapter.extractProductData()).routePending,true);
+  const current=await setup('technopolis',page,'https://www.technopolis.bg/bg/x/p/513560');
+  assert.equal((await current.context.__adapter.extractProductData()).routePending,false);
+});
+
+test('a pending route is re-read before tracking and never recorded when it persists',async()=>{
+  const {base,sent}=baseContext();const product=(price,routePending)=>({id:'technopolis_1',url:'https://www.technopolis.bg/bg/x/p/1',price,routePending});
+  let reads=0;
+  await base.trackAndDisplay(async()=>++reads<3?product(23.9,true):product(29.9,false),async()=>{},()=>true);
+  assert.equal(reads,3);assert.deepEqual(sent.map(p=>[p.price,'routePending' in p]),[[29.9,false]]);
+  let injected=0;
+  await base.trackAndDisplay(async()=>product(23.9,true),async()=>{injected++;},()=>true,{routeWaitMs:500});
+  assert.equal(sent.length,1);assert.equal(injected,0);
+});
+
+test('first-load readiness keeps probing until the product page hydrates',async()=>{
+  const {base}=baseContext();let probes=0,tracked=0;
+  base.whenProductPage(()=>++probes>=3,()=>{tracked++;},0,5000);
+  await new Promise(resolve=>setTimeout(resolve,1300));
+  assert.equal(tracked,1);assert.equal(probes,3);
+  const nav=baseContext();let late=0;
+  nav.base.whenProductPage(()=>{nav.location.href='https://www.technopolis.bg/bg/c/1';return false;},()=>{late++;},0,5000);
+  await new Promise(resolve=>setTimeout(resolve,700));assert.equal(late,0);
+});
+
+test('Notino keeps one history for a single-variant product and per-variant IDs otherwise',async()=>{
+  const offer=(variant,price)=>({price,priceCurrency:'EUR',availability:'InStock',sku:'S'+variant,url:'/vs/bare/p-'+variant+'/'});
+  const page=(offers,visible)=>'<div data-testid="pd-price-wrapper">'+visible+' €</div>'+ld({'@type':'Product',name:'Bare',sku:'S1',gtin13:'667548038720',offers});
+  const single=await setup('notino',page([offer(1,14.32),offer(1,17.9)],'17,90'),'https://www.notino.bg/vs/bare/p-1/');
+  const p=await single.context.__adapter.extractProductData();
+  assert.deepEqual([p.id,p.ean,p.routePending],['notino_vs_bare','667548038720',false]);
+  const multi=await setup('notino',page([offer(1,17.9),offer(2,19.9)],'19,90'),'https://www.notino.bg/vs/bare/p-2/');
+  const q=await multi.context.__adapter.extractProductData();
+  assert.deepEqual([q.id,q.ean,q.routePending],['notino_2',null,false]);
+  // Right after a variant switch the previous variant's price is still shown.
+  const switching=await setup('notino',page([offer(1,17.9),offer(2,19.9)],'17,90'),'https://www.notino.bg/vs/bare/p-2/');
+  assert.equal((await switching.context.__adapter.extractProductData()).routePending,true);
+});
+
+test('ProductGroup barcodes follow the selected size and are empty without one',async()=>{
+  const dir=path.join(base,'aboutyou.bg html pages');if(!fs.existsSync(dir))return;
+  const html=fs.readFileSync(path.join(dir,fs.readdirSync(dir).find(f=>f.startsWith('regular price'))),'utf8');
+  const url=urlFor(html,parseHTML(html).document);
+  assert.equal((await (await setup('aboutyou',html,url)).context.__adapter.extractProductData()).ean,null);
+  assert.equal((await (await setup('aboutyou',html,url+'?vid=91611795')).context.__adapter.extractProductData()).ean,'0198961099840');
+});
+
+test('Obuvki and Answear thumbnails are product image URLs',async()=>{
+  for(const [site,host,prefix] of [['obuvki','obuvki.bg','img.eobuwie.cloud'],['answear','answear.bg','img2.ans-media.com']]){
+    const dir=path.join(base,host+' html pages');if(!fs.existsSync(dir))continue;
+    for(const f of fs.readdirSync(dir).filter(f=>f.endsWith('.html'))){
+      const html=fs.readFileSync(path.join(dir,f),'utf8');
+      const p=await (await setup(site,html,urlFor(html,parseHTML(html).document))).context.__adapter.extractProductData();
+      assert.equal(typeof p.thumbnail,'string',f);assert(p.thumbnail.startsWith('https://'+prefix+'/'),f);
+    }
+  }
+});
+
 // Live captures (2026-10-25; Zora saved by hand in Chrome): [site, folder, file prefix, price, originalPrice].
 // price null = out of stock / not purchasable; 'not-product' = a delisted
 // product URL that must not be treated as a product page at all.

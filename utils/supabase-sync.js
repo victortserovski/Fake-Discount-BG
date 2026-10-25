@@ -81,6 +81,21 @@
       });
       // Bound each worker run; keep rejected entries without blocking later ones.
       for (const [key, payload] of pending.slice(0, 20)) {
+        // Re-check right before sending: the history may have been deleted
+        // or the store switched off (Settings → Track prices on) meanwhile.
+        const site = String(payload.site || '');
+        const enableKey = 'enable' + site.charAt(0).toUpperCase() + site.slice(1);
+        const recordKey = 'p_' + payload.product_id;
+        const now = await chrome.storage.local.get([key, recordKey, enableKey]);
+        if (!now[key]) continue;
+        if (!now[recordKey]) {
+          await withQueueLock(async () => {
+            const current = (await chrome.storage.local.get([key]))[key];
+            if (current?.client_observed_at === payload.client_observed_at) await chrome.storage.local.remove([key]);
+          });
+          continue;
+        }
+        if (now[enableKey] === false) continue; // Paused, not dropped, while the store is off.
         const observation = { ...payload };
         delete observation._lastAttempt;
         const res = await fetch(SUPABASE_URL + '/rest/v1/rpc/ingest_price_observation', {

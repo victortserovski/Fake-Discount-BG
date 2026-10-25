@@ -252,5 +252,5 @@
   });
   // SPA shell: wait long for the product render.
   await new Promise(resolve => setTimeout(resolve, 2500));
-  if (isProductPage()) setTimeout(trackAndDisplay, 1500);
+  ContentScriptBase.whenProductPage(isProductPage, trackAndDisplay, 1500);
 })();

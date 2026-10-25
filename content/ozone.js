@@ -384,7 +384,5 @@
   await new Promise(resolve => setTimeout(resolve, 1000));
 
   // If the initial page is already a product page, kick off tracking.
-  if (isProductPage()) {
-    setTimeout(trackAndDisplay, 1500);
-  }
+  ContentScriptBase.whenProductPage(isProductPage, trackAndDisplay, 1500);
 })();

@@ -17,12 +17,12 @@ and run [supabase/verify-ingestion.sql](supabase/verify-ingestion.sql).
 - **Integrated Display**: A price panel on product pages, rendered in a shadow root so store CSS can't restyle it. It shows the verdict with its evidence, today / lowest / average / highest prices, and a step chart with the store's claimed "was" price, your target and the average as reference lines. Time-range tabs appear for long histories, and the chart has hover and keyboard tooltips. The panel collapses to a one-line summary, and that choice is remembered. Out-of-stock pages say so instead of showing an empty chart
 - **Verdict System**: Shows the heuristic states "Check the discount", "Low observed price", "Volatile price", "Stable price", or "Tracking" with the observations behind the result
 - **Extension Badge**: Per-tab icon badge — "!" for discounts needing review, "✓" for favorable observed prices, 🎯 when a price target is hit (target badge overrides the verdict badge on that tab)
-- **Price Targets**: Set a target on any product (comma or dot decimals both work); the chart shows a horizontal target line, the panel shows how far the price is from it, the popup marks active targets, and the current tab badge/pill changes when a visited price reaches the target. There is no background polling or browser notification.
+- **Price Targets**: Set a target on any product (comma or dot decimals both work); the chart shows a horizontal target line, the panel shows how far the price is from it, the popup marks active targets, and the current tab badge/pill changes when a visited price reaches the target (editing or clearing the target updates the badge straight away). There is no background polling or browser notification.
 - **Clickable Product List**: Click any product in the popup to open its page. Each card shows the product's current verdict tag, a price sparkline and the change since the previous observation
 - **Bilingual Support**: Bulgarian (default) and English, with localized currency and date formatting
 - **Dark mode**: The popup and full-tab view follow the operating system's light/dark setting
-- **Export/Import**: Export and import price-history product records as JSON with field-level validation (settings and price targets are not included; valid records and their index are committed in one storage batch). Imported image URLs are discarded; images refresh on the next retailer visit.
-- **EAN/GTIN tracking**: Validated barcodes can be searched or copied in the popup. The generic extractor checks JSON-LD, meta, microdata, custom EAN attributes (including Technomarket), and labelled text. Cross-store matching is a future feature.
+- **Export/Import**: Export and import price-history product records as JSON with field-level validation (settings and price targets are not included; valid records and their index are committed in one storage batch). Rows dated after today or outside the recorded price range (0.01–1,000,000 EUR) are dropped. Imported image URLs are discarded; images refresh on the next retailer visit.
+- **EAN/GTIN tracking**: Validated barcodes can be searched or copied in the popup. The generic extractor checks JSON-LD, meta, microdata, custom EAN attributes (including Technomarket), and labelled text. When a product has one barcode per size or shade and the page does not select one (About You, multi-shade Notino), no barcode is stored rather than a wrong size's. Cross-store matching is a future feature.
 - **Last-seen indicator**: Each product card shows when it was last refreshed ("today / yesterday / N days ago") so stale entries are easy to spot
 - **Keyboard shortcut**: Press `Ctrl+Shift+F` (or `⌘+Shift+F` on Mac) to open the popup. Customisable at `chrome://extensions/shortcuts`
 - **Persisted filters**: Store-filter chips and sort selection survive popup close/reopen (the search box is intentionally cleared each time)
@@ -70,7 +70,8 @@ and run [supabase/verify-ingestion.sql](supabase/verify-ingestion.sql).
   storage quota is reached.
 - Storage usage shown with adaptive precision (e.g. "0.03%") in the popup
 - No automatic deletion — products can be removed individually, by the manual
-  90-day cleanup, or with Clear all history
+  90-day cleanup, or with Clear all history. Removing history also removes
+  its observations still queued for upload
 
 ## Popup
 
@@ -163,7 +164,10 @@ legacy allow-all anon table policies for a production dataset.
   history-based state or `noPatternMatch` at 7+ price observations)
 - The extension only tracks products you actually visit (not all products on the site)
 - Product identification uses site-specific URL-derived keys; EAN/GTIN is
-  captured separately when available
+  captured separately when available. A Notino `/p-<id>/` link to a
+  single-variant product uses that product's family key, so it shares one
+  history with the family URL that listings link to (earlier records under
+  the variant key are kept, not merged)
 - All prices are displayed in EUR regardless of language setting
 - Historical SportDepot keys that could combine multiple models remain separate. New observations use full model/colour IDs; ambiguous old data is not guessed, merged, or deleted.
 

@@ -95,7 +95,7 @@
       const discount = originalPrice ? ProductParser.calculateDiscount(originalPrice, price) : null;
 
       let thumbnail = null;
-      if (ld && ld.image) thumbnail = Array.isArray(ld.image) ? ld.image[0] : ld.image;
+      if (ld && ld.image) thumbnail = ProductParser.imageUrl(ld.image);
       if (!thumbnail) {
         const og = document.querySelector('meta[property="og:image"]');
         if (og && og.content) thumbnail = og.content;
@@ -158,5 +158,5 @@
     if (document.readyState === 'complete') resolve();
     else window.addEventListener('load', resolve);
   });
-  if (isProductPage()) setTimeout(trackAndDisplay, 500);
+  ContentScriptBase.whenProductPage(isProductPage, trackAndDisplay, 500);
 })();

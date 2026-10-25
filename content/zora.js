@@ -268,7 +268,5 @@
   // before we try to read the optional was-price.
   await new Promise(resolve => setTimeout(resolve, 1200));
 
-  if (isProductPage()) {
-    setTimeout(trackAndDisplay, 800);
-  }
+  ContentScriptBase.whenProductPage(isProductPage, trackAndDisplay, 800);
 })();

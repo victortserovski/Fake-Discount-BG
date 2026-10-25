@@ -129,7 +129,7 @@
       // fallback to first product gallery <img>.
       let thumbnail = null;
       if (productLd && productLd.image) {
-        thumbnail = Array.isArray(productLd.image) ? productLd.image[0] : productLd.image;
+        thumbnail = ProductParser.imageUrl(productLd.image);
       }
       if (!thumbnail) {
         const og = document.querySelector('meta[property="og:image"]');
@@ -224,7 +224,5 @@
   // <tm-price> block a moment to render before the first extraction.
   await new Promise(resolve => setTimeout(resolve, 1500));
 
-  if (isProductPage()) {
-    setTimeout(trackAndDisplay, 1500);
-  }
+  ContentScriptBase.whenProductPage(isProductPage, trackAndDisplay, 1500);
 })();

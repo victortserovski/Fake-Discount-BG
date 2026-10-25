@@ -173,7 +173,5 @@
   });
 
   // Server-rendered — no hydration delay needed.
-  if (isProductPage()) {
-    setTimeout(trackAndDisplay, 200);
-  }
+  ContentScriptBase.whenProductPage(isProductPage, trackAndDisplay, 200);
 })();

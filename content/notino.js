@@ -71,6 +71,9 @@
     return /OutOfStock/i.test(offer?.availability || '');
   }
 
+  // When this URL's visible price first disagreed with its offers.
+  let priceMismatch = { url: null, since: 0 };
+
   // Pull the first EUR amount out of a text blob like "22,10 € / 43,22 лв.".
   // Notino interleaves comments (<!-- -->) inside the price markup, so we
   // operate on `textContent` which strips them.
@@ -90,8 +93,21 @@
       ).catch(() => { });
 
       const url = window.location.href;
-      const productId = ProductParser.extractProductId(url);
       const productLd = readProductJsonLd();
+      // Offers list every variant (its own /p-<id>/ URL, a promo-code and a
+      // regular price each); pageOffers are the ones this URL shows.
+      const offers = productLd && productLd.offers
+        ? (Array.isArray(productLd.offers) ? productLd.offers : [productLd.offers]) : [];
+      const pageOffers = offers.filter(o => offerMatchesPage(o.url));
+      const variantUrls = new Set(offers.map(o => (offerPathname(o.url) || '').replace(/\/$/, '')).filter(Boolean));
+
+      // Listings link single-variant products by their family URL, so a
+      // /p-<id>/ link to that lone variant keeps the family's history.
+      // Multi-variant products keep one history per variant.
+      const familyUrl = ProductParser.familyProductUrl(url);
+      const productId = familyUrl && variantUrls.size === 1 && pageOffers.length
+        ? ProductParser.extractProductId(familyUrl)
+        : ProductParser.extractProductId(url);
 
       // Title: prefer JSON-LD (clean, language-correct), fall back to <h1>.
       let title = '';
@@ -125,15 +141,23 @@
       // cloud sync. Returning price=null lets ContentScriptBase.trackAndDisplay
       // render the widget with existing history without saving a new entry.
       let unavailable = false;
-      if (productLd && productLd.offers) {
-        const offers = Array.isArray(productLd.offers) ? productLd.offers : [productLd.offers];
-        const matched = offers.find(o => offerMatchesPage(o.url));
-        if (matched && isOfferOutOfStock(matched)) {
-          price = null;
-          unavailable = true;
-        }
+      const matched = pageOffers[0];
+      if (matched && isOfferOutOfStock(matched)) {
+        price = null;
+        unavailable = true;
       }
       if (price == null && !unavailable) return null;
+
+      // On a variant switch the URL changes ~0.2–0.5 s before the visible
+      // price re-renders, so a price none of this variant's offers carries is
+      // probably still the previous variant's. Ask the base to re-read
+      // briefly, then trust the visible price (JSON-LD can lag a real change).
+      let routePending = false;
+      if (price != null && pageOffers.length
+        && !pageOffers.some(o => Math.abs(parseFloat(o.price) - price) < 0.005)) {
+        if (priceMismatch.url !== url) priceMismatch = { url, since: Date.now() };
+        routePending = Date.now() - priceMismatch.since < 3000;
+      }
 
       // Original price: Notino does not consistently expose a struck-through
       // "was" price for its products (the EU-mandated "lowest 30-day" line is
@@ -147,11 +171,20 @@
       // Thumbnail: JSON-LD `image` is reliable.
       let thumbnail = null;
       if (productLd && productLd.image) {
-        thumbnail = Array.isArray(productLd.image) ? productLd.image[0] : productLd.image;
+        thumbnail = ProductParser.imageUrl(productLd.image);
       }
       if (!thumbnail) {
         const img = document.querySelector('main img, picture img');
         if (img && img.src) thumbnail = img.src;
+      }
+
+      // The top-level gtin13 belongs to the JSON-LD product's own sku (one
+      // variant of the family). Keep it only when this page shows exactly
+      // that variant; another shade/size would get the wrong barcode.
+      let ean = ProductParser.extractEAN(document);
+      const pageSkus = new Set(pageOffers.map(o => o.sku).filter(Boolean));
+      if (ean && variantUrls.size > 1 && !(pageSkus.size === 1 && productLd && pageSkus.has(productLd.sku))) {
+        ean = null;
       }
 
       return {
@@ -163,7 +196,8 @@
         discount: discount,
         site: 'notino',
         thumbnail: thumbnail,
-        ean: ProductParser.extractEAN(document)
+        ean: ean,
+        routePending: routePending
       };
     } catch (error) {
       console.error('[Fake Discount] Error extracting product data:', error);
@@ -238,7 +272,5 @@
   // moment to appear before the first extraction attempt.
   await new Promise(resolve => setTimeout(resolve, 1200));
 
-  if (isProductPage()) {
-    setTimeout(trackAndDisplay, 1500);
-  }
+  ContentScriptBase.whenProductPage(isProductPage, trackAndDisplay, 1500);
 })();

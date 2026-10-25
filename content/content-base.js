@@ -124,8 +124,25 @@ const ContentScriptBase = {
             if (!enabled) return;
         }
 
-        const productData = await extractProductData();
+        let productData = await extractProductData();
         if (!isCurrent()) return;
+
+        // Adapters set routePending when the rendered product is not yet the
+        // one in the URL (URL-first SPA routers re-render after the URL
+        // changes). Re-read until it catches up; never record the previous
+        // product's values under the new URL's ID.
+        const routeDeadline = Date.now() + (options.routeWaitMs || 6000);
+        while (productData && productData.routePending) {
+            if (Date.now() >= routeDeadline) {
+                console.warn('[Fake Discount] Page still shows another product; not recording.');
+                return;
+            }
+            await new Promise(resolve => setTimeout(resolve, 400));
+            if (!isCurrent()) return;
+            productData = await extractProductData();
+            if (!isCurrent()) return;
+        }
+        if (productData) delete productData.routePending;
 
         // Empty-state analysis used when there is no usable price (e.g. an
         // out-of-stock variant) or the background failed to record. Mirrors
@@ -189,6 +206,20 @@ const ContentScriptBase = {
                 id: productData.id
             }, { ...emptyAnalysis, reasonKey: 'trackingFailed', reasonParams: {} });
         }
+    },
+
+    // First load: hydration can finish after the adapter's fixed startup
+    // delay, so keep probing (bounded) instead of checking isProductPage()
+    // once. Stops when the URL changes — setupNavigation owns later routes.
+    whenProductPage(isProductPage, trackAndDisplay, delayMs = 0, maxWaitMs = 10000) {
+        const startedUrl = location.href;
+        const deadline = Date.now() + maxWaitMs;
+        const probe = () => {
+            if (!this.isContextValid() || location.href !== startedUrl) return;
+            if (isProductPage()) setTimeout(trackAndDisplay, delayMs);
+            else if (Date.now() < deadline) setTimeout(probe, 500);
+        };
+        probe();
     },
 
     // Setup SPA navigation detection via background messages and popstate

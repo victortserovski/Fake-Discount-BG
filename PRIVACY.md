@@ -55,7 +55,9 @@ Hiding the on-page chart (Settings → "Show chart on product pages") does
 whether the widget is drawn on the product page.
 
 Turning off **Track prices on** a specific store stops tracking, widget
-injection, and cloud uploads for that store only. Other enabled stores
+injection, and cloud uploads for that store only. Observations from that
+store still waiting in the upload queue stay there and are not sent until the
+store is turned back on. Other enabled stores
 continue to record and upload as usual. The change takes effect on the
 **next page load or in-page navigation** for that store (Manifest V3
 content scripts are injected once per document lifecycle), not instantly
@@ -158,9 +160,13 @@ public build. Forks can blank the Supabase constants in
 **Local data:**
 
 - Open the popup → **Data** tab → **"Clear all history"** to remove all local
-  product records, including orphaned keys. Other preferences and the upload
-  identity remain. Supported pages visited afterward can record new history.
+  product records, including orphaned keys and any observations still queued
+  for upload. Other preferences and the upload identity remain. Supported
+  pages visited afterward can record new history. An upload already in
+  progress at that moment cannot be recalled.
 - **"Cleanup old"** removes whole products not seen for at least 90 days.
+  Deleting a product (individually or by cleanup) also removes its queued
+  uploads.
 - Uninstalling the extension from `chrome://extensions/` removes all
   local data.
 

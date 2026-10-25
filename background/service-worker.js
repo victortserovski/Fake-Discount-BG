@@ -165,11 +165,12 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     (async () => {
       try {
         const url = sender.url || sender.tab.url;
-        if (!isSupportedProductUrl(url) || request.productId !== ProductParser.extractProductId(url)
+        if (!isSupportedProductUrl(url) || !ProductParser.idMatchesUrl(request.productId, url)
           || (request.value !== null && (!Number.isFinite(request.value) || request.value <= 0 || request.value > 1000000))) {
           throw new Error('invalidTarget');
         }
         await storageManager.setPriceTarget(request.productId, url, request.value);
+        await refreshTabBadge(sender.tab?.id, url, request.productId).catch(() => {});
         sendResponse({ success: true });
       } catch (error) { sendResponse({ success: false, error: error.message }); }
     })();
@@ -391,15 +392,22 @@ function isValidImportedProduct(productId, p) {
   // against malicious backup files that could otherwise inject arbitrary
   // navigation targets (popup opens product.url with chrome.tabs.create).
   if (!isSupportedProductUrl(p.url)) return false;
-  const canonicalId = ProductParser.extractProductId(p.url);
   const legacySportId = p.url.match(/sportdepot\.bg\/product\/[^/]+-(\d+)-basic\.html/i);
-  if (productId !== canonicalId && !(legacySportId && productId === `sportdepot_${legacySportId[1]}`)) return false;
+  if (!ProductParser.idMatchesUrl(productId, p.url) && !(legacySportId && productId === `sportdepot_${legacySportId[1]}`)) return false;
   // At least one history row must be a valid {date, price} entry.
-  return p.history.some(h =>
-    h && typeof h === 'object' &&
-    isValidHistoryDate(h.date) &&
-    typeof h.price === 'number' && isFinite(h.price) && h.price > 0
-  );
+  return p.history.some(isValidHistoryRow);
+}
+
+// Rows use the same bounds as recording and the ingestion RPC. Future days
+// are rejected: sorted last, they would pose as today's price and upload.
+function isValidHistoryRow(h) {
+  return !!h && typeof h === 'object' && isValidHistoryDate(h.date)
+    && h.date >= '2000-01-01' && h.date <= storageManager.getTodayDate()
+    && isValidPrice(h.price);
+}
+
+function isValidPrice(value) {
+  return typeof value === 'number' && Number.isFinite(value) && value > 0 && value <= 1000000;
 }
 
 function isValidHistoryDate(date) {
@@ -410,15 +418,11 @@ function isValidHistoryDate(date) {
 // Strip unknown fields and drop malformed history rows from imported data.
 function sanitizeImportedProduct(p) {
   const rows = p.history
-    .filter(h =>
-      h && typeof h === 'object' &&
-      isValidHistoryDate(h.date) &&
-      typeof h.price === 'number' && isFinite(h.price) && h.price > 0
-    )
+    .filter(isValidHistoryRow)
     .map(h => ({
       date: h.date,
       price: h.price,
-      originalPrice: typeof h.originalPrice === 'number' && isFinite(h.originalPrice) ? h.originalPrice : null,
+      originalPrice: isValidPrice(h.originalPrice) ? h.originalPrice : null,
       discount: typeof h.discount === 'number' && isFinite(h.discount) ? h.discount : null
     }));
   // Last supplied value wins for duplicate days; stored history is chronological.
@@ -455,7 +459,7 @@ async function handleProductTracking(productData, sendResponse, sender) {
 
   try {
     const productId = productData.id;
-    if (!isSupportedProductUrl(productData.url) || ProductParser.extractProductId(productData.url) !== productId
+    if (!isSupportedProductUrl(productData.url) || !ProductParser.idMatchesUrl(productId, productData.url)
       || !Number.isFinite(productData.price) || productData.price <= 0 || productData.price > 1000000) {
       throw new Error('invalidProduct');
     }
@@ -497,11 +501,11 @@ async function handleProductTracking(productData, sendResponse, sender) {
     });
 
     // Best-effort write-through to Supabase. Fire-and-forget — never block
-    // local save or widget render on the network.
+    // local save or widget render on the network. Upload the row this visit
+    // recorded, not the last row (an older import may hold later dates).
     if (typeof SupabaseSync !== 'undefined' && SupabaseSync.isConfigured()) {
-      const latest = product.history && product.history.length > 0
-        ? product.history[product.history.length - 1]
-        : null;
+      const today = storageManager.getTodayDate();
+      const latest = (product.history || []).find(h => h.date === today) || null;
       if (latest) {
         SupabaseSync.pushDatapoint({
           productId,
@@ -525,43 +529,7 @@ async function handleProductTracking(productData, sendResponse, sender) {
       history: product.history || []
     });
 
-    let badgeIsCurrent = false;
-    try {
-      badgeIsCurrent = (await chrome.tabs.get(sender.tab.id)).url === productData.url;
-    } catch (_) { /* Tab was closed or navigated away. */ }
-
-    // Set badge on extension icon based on verdict
-    if (badgeIsCurrent) try {
-      const tabId = sender?.tab?.id;
-      if (analysis.verdict === 'FAKE_DISCOUNT') {
-        chrome.action.setBadgeText({ text: '!', tabId });
-        chrome.action.setBadgeBackgroundColor({ color: '#E5173F', tabId });
-      } else if (analysis.verdict === 'REAL_DEAL') {
-        chrome.action.setBadgeText({ text: '✓', tabId });
-        chrome.action.setBadgeBackgroundColor({ color: '#13A160', tabId });
-      } else {
-        chrome.action.setBadgeText({ text: '', tabId });
-      }
-    } catch (e) {
-      // Badge API may not be available in all contexts
-    }
-
-    // Check price targets and notify (per-tab so it doesn't override
-    // other tabs). Read by productId first (canonical, since v3.15.11),
-    // fall back to the URL key for targets set on older versions that
-    // haven't been migrated yet.
-    if (badgeIsCurrent) try {
-      const tabId = sender?.tab?.id;
-      const targetResult = await chrome.storage.local.get(['priceTargets']);
-      const targets = targetResult.priceTargets || {};
-      const idKey = productData.id || '';
-      const urlKey = productData.url || '';
-      const target = (idKey && targets[idKey]) || (urlKey && targets[urlKey]) || null;
-      if (target && productData.price <= target) {
-        chrome.action.setBadgeText({ text: '🎯', tabId });
-        chrome.action.setBadgeBackgroundColor({ color: '#7038E8', tabId });
-      }
-    } catch (e) {}
+    await applyTabBadge(sender?.tab?.id, productData.url, productId, productData.price, analysis);
 
     sendResponse({
       success: true,
@@ -575,6 +543,48 @@ async function handleProductTracking(productData, sendResponse, sender) {
       error: error.message
     });
   }
+}
+
+// Per-tab badge: verdict mark, overridden by 🎯 once the price reaches the
+// product's target. Only while the tab still shows this product's URL.
+async function applyTabBadge(tabId, url, productId, price, analysis) {
+  try {
+    if (tabId == null || (await chrome.tabs.get(tabId)).url !== url) return;
+  } catch (_) { return; } // Tab was closed or navigated away.
+  try {
+    if (analysis.verdict === 'FAKE_DISCOUNT') {
+      chrome.action.setBadgeText({ text: '!', tabId });
+      chrome.action.setBadgeBackgroundColor({ color: '#E5173F', tabId });
+    } else if (analysis.verdict === 'REAL_DEAL') {
+      chrome.action.setBadgeText({ text: '✓', tabId });
+      chrome.action.setBadgeBackgroundColor({ color: '#13A160', tabId });
+    } else {
+      chrome.action.setBadgeText({ text: '', tabId });
+    }
+    // Targets are keyed by productId (since v3.15.11); older ones by URL.
+    const targets = (await chrome.storage.local.get(['priceTargets'])).priceTargets || {};
+    const target = targets[productId] || targets[url] || null;
+    if (target && price <= target) {
+      chrome.action.setBadgeText({ text: '🎯', tabId });
+      chrome.action.setBadgeBackgroundColor({ color: '#7038E8', tabId });
+    }
+  } catch (e) {
+    // Badge API may not be available in all contexts
+  }
+}
+
+// After a target edit, redo the badge from today's recorded price so a
+// cleared or newly reached target shows without another visit.
+async function refreshTabBadge(tabId, url, productId) {
+  const product = await storageManager.getProduct(productId);
+  const today = product && product.history.find(h => h.date === storageManager.getTodayDate());
+  if (!today) return;
+  const analysis = detectFakeDiscount({
+    currentPrice: today.price,
+    originalPrice: today.originalPrice,
+    history: product.history
+  });
+  await applyTabBadge(tabId, url, productId, today.price, analysis);
 }
 
 async function handleGetAnalysis(productId, sendResponse) {

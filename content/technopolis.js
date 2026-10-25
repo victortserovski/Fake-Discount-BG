@@ -69,6 +69,10 @@
       const url = window.location.href;
       const productId = ProductParser.extractProductId(url);
       const productLd = readProductJsonLd();
+      // The JSON-LD sku is the /p/<id> in the URL; another sku means the page
+      // still shows the previous product (the base re-reads until it matches).
+      const routeId = (url.match(/\/p\/(\d+)/) || [])[1];
+      const routePending = !!(productLd && productLd.sku != null && routeId && String(productLd.sku) !== routeId);
 
       // Title: JSON-LD `name` with brand prepended for context, fall back
       // to the page <h1>. The brand-prepend mirrors Notino's behaviour and
@@ -134,7 +138,7 @@
       // <img> inside the product preview area.
       let thumbnail = null;
       if (productLd && productLd.image) {
-        thumbnail = Array.isArray(productLd.image) ? productLd.image[0] : productLd.image;
+        thumbnail = ProductParser.imageUrl(productLd.image);
       }
       if (!thumbnail) {
         const img = document.querySelector('.product-pdp__preview img, cx-media img');
@@ -150,7 +154,8 @@
         discount: discount,
         site: 'technopolis',
         thumbnail: thumbnail,
-        ean: ProductParser.extractEAN(document)
+        ean: ProductParser.extractEAN(document),
+        routePending: routePending
       };
     } catch (error) {
       console.error('[Fake Discount] Technopolis extract error:', error);
@@ -222,7 +227,5 @@
   // a moment to appear before the first extraction attempt.
   await new Promise(resolve => setTimeout(resolve, 1200));
 
-  if (isProductPage()) {
-    setTimeout(trackAndDisplay, 1500);
-  }
+  ContentScriptBase.whenProductPage(isProductPage, trackAndDisplay, 1500);
 })();
