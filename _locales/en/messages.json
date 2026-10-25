@@ -1,0 +1,10 @@
+{
+  "appName": {
+    "message": "Fake Discount Bulgaria - Catch Faked Sales",
+    "description": "Extension name (brand, not translated)."
+  },
+  "appDescription": {
+    "message": "Tracks daily price history in your browser and flags doubtful discounts on product pages in 20 Bulgarian online stores.",
+    "description": "Chrome Web Store summary, max 132 characters."
+  }
+}

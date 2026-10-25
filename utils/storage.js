@@ -20,8 +20,11 @@
   const INDEX_KEY = 'product_index';
   const OLD_STORAGE_KEY = 'priceHistory';
   const MIGRATION_FLAG = 'storage_migrated_v2';
-  // Upload queue entries (utils/supabase-sync.js): sync_pending_<id>:<date>.
-  const PENDING_PREFIX = 'sync_pending_';
+  // Left by the removed cloud upload (≤ v3.18): queued copies of history and
+  // the upload clock. Deleted on migration; see _migrateFromOldFormat.
+  const LEGACY_UPLOAD_PREFIX = 'sync_pending_';
+  const LEGACY_UPLOAD_CLOCK = 'supabase_last_observation';
+  const LEGACY_IDENTITY = 'supabase_identity';
 
   try {
     // Named PriceStorageManager to avoid conflict with the built-in Web StorageManager API
@@ -79,9 +82,18 @@
           key.startsWith(PRODUCT_PREFIX) && products[key] && Array.isArray(products[key].history)
         ).map(key => key.slice(PRODUCT_PREFIX.length));
         changes[MIGRATION_FLAG] = true;
+        // Cloud upload was removed: drop its queue and installation secret.
+        // The device ID stays so the user can still ask for removal of
+        // observations uploaded by earlier versions (see PRIVACY.md).
+        const identity = stored[LEGACY_IDENTITY];
+        if (identity && typeof identity === 'object' && 'secret' in identity) {
+          changes[LEGACY_IDENTITY] = { deviceId: identity.deviceId };
+        }
         // Also repairs orphaned product records left by earlier versions.
         await chrome.storage.local.set(changes);
-        if (stored[OLD_STORAGE_KEY]) await chrome.storage.local.remove([OLD_STORAGE_KEY]);
+        const obsolete = Object.keys(stored).filter(key => key.startsWith(LEGACY_UPLOAD_PREFIX) || key === LEGACY_UPLOAD_CLOCK);
+        if (stored[OLD_STORAGE_KEY]) obsolete.push(OLD_STORAGE_KEY);
+        if (obsolete.length) await chrome.storage.local.remove(obsolete);
         return true;
       }
 
@@ -318,10 +330,7 @@
         // Remove the record value and its index entry in one batch. A worker
         // interruption before removing the empty key cannot resurrect its data.
         await chrome.storage.local.set({ [key]: null, [INDEX_KEY]: index });
-        // Queued uploads are copies of this history; deleting it drops them.
-        const pending = Object.keys(await chrome.storage.local.get(null))
-          .filter(k => k.startsWith(PENDING_PREFIX + productId + ':'));
-        await chrome.storage.local.remove([key, ...pending]);
+        await chrome.storage.local.remove([key]);
 
         return true;
       }
@@ -331,8 +340,7 @@
         await this.ensureMigrated();
         return this._withMutationLock(async () => {
           const stored = await chrome.storage.local.get(null);
-          // Queued uploads are local copies of history too.
-          const keys = Object.keys(stored).filter(key => key.startsWith(PRODUCT_PREFIX) || key.startsWith(PENDING_PREFIX));
+          const keys = Object.keys(stored).filter(key => key.startsWith(PRODUCT_PREFIX));
           keys.push(INDEX_KEY);
           await chrome.storage.local.remove(keys);
         });

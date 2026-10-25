@@ -4,9 +4,7 @@
 
 A Manifest V3 Chrome/Edge extension with adapters for 20 Bulgarian e-commerce sites (Emag.bg, Ozone.bg, Notino.bg, Technopolis.bg, Technomarket.bg, Zora.bg, Ardes.bg, Plesio.bg, Aboutyou.bg, Answear.bg, Decathlon.bg, dm-drogeriemarkt.bg, Fashiondays.bg, Lillydrogerie.bg, Mr-bricolage.bg, Obuvki.bg, Praktiker.bg, Sopharmacy.bg, Sportdepot.bg, eBag.bg). It records a daily EUR price snapshot when you visit a supported, enabled product page and renders local price-history charts plus heuristic deal signals directly on the page.
 
-The configured Supabase project uses the restricted ingestion function in
-[supabase/ingestion.sql](supabase/ingestion.sql). New deployments must apply it
-and run [supabase/verify-ingestion.sql](supabase/verify-ingestion.sql).
+All recorded data stays in the browser's local extension storage; the extension has no server and sends nothing anywhere.
 
 **Repository:** https://github.com/victortserovski/Fake-Discount-BG
 **Privacy policy:** [PRIVACY.md](PRIVACY.md)
@@ -70,8 +68,7 @@ and run [supabase/verify-ingestion.sql](supabase/verify-ingestion.sql).
   storage quota is reached.
 - Storage usage shown with adaptive precision (e.g. "0.03%") in the popup
 - No automatic deletion — products can be removed individually, by the manual
-  90-day cleanup, or with Clear all history. Removing history also removes
-  its observations still queued for upload
+  90-day cleanup, or with Clear all history.
 
 ## Popup
 
@@ -92,12 +89,11 @@ arms the button and the second confirms it.
 **Settings tab**
 - Change language (Bulgarian/English)
 - **Show the price panel** — visibility toggle. When off, prices are
-  still tracked silently in the background and uploaded to the shared dataset;
-  the panel just doesn't appear.
+  still recorded locally; the panel just doesn't appear.
 - **Stores** — a master toggle per store (Emag, Ozone, Notino, Technopolis,
   Technomarket, Zora, Ardes, Plesio, Aboutyou, Answear, Decathlon, dm,
   Fashiondays, Lilly, Mr-bricolage, Obuvki, Praktiker, Sopharmacy, Sportdepot,
-  eBag). When off, no tracking, no panel, and no Supabase uploads for that site.
+  eBag). When off, no tracking and no panel for that site.
 - **About** — current version (read live from `manifest.json`), keyboard
   shortcut with a link to customise it, and the contact email
 
@@ -118,44 +114,20 @@ the version.
 - `ui/` - Shared UI kit (ui-kit.js: DOM builders, icons, store metadata, formatting), SVG chart (advanced-chart.js) and the in-page price panel (price-graph-widget.js + its shadow-root stylesheet)
 - `i18n/` - Bulgarian and English translation files
 - `popup/` - Extension popup with settings and product list
-- `utils/` - PriceStorageManager with per-product keys and migration support; Supabase best-effort, one-way upload utility (see [PRIVACY.md](PRIVACY.md))
+- `utils/` - PriceStorageManager with per-product keys and migration support
 
 ## Development
 
 The widget UI scripts run in the content script isolated world (not injected into the host page). This ensures they work on sites with strict Content Security Policies like Ozone.bg. The panel renders inside an open shadow root on the `#fake-discount-widget` host, so retailer CSS and the panel's own styles stay apart. SPA navigation is detected via `chrome.tabs.onUpdated` messages from the background service worker.
 
-### Cloud sync (enabled in the public build)
+### Local-only storage
 
-`utils/supabase-sync.js` ships with populated `SUPABASE_URL` and
-`SUPABASE_ANON_KEY` constants pointing at a developer-controlled
-Supabase project. Each recorded daily snapshot is submitted best-effort,
-one-way to a `price_history` Postgres table — see
-[PRIVACY.md](PRIVACY.md) for the exact field list and how the data is
-used. The extension does not download that pooled dataset: verdicts and
-charts use local history only. Local `chrome.storage` remains the source
-of truth; the network push never blocks the widget render. Upload is deduplicated per
-`(device_id, product_id, observed_date)` so repeated visits within the
-same day don't bloat the dataset.
-
-Pending uploads are stored per product/day and retried by a five-minute Chrome
-alarm, including after a worker restart. A newer visit replaces that day's pending
-snapshot; acknowledgement removes only the matching queued version. Network
-failures retain the queue. Local storage failure or termination before enqueue
-can still prevent an upload; cloud ingestion does not replace local backups.
-The `alarms` permission is used only for upload retries, not retailer polling.
-
-The client calls only the write-only `ingest_price_observation` RPC. Deploy
-`supabase/ingestion.sql` to revoke direct anonymous/authenticated table access.
-The RPC derives the device ID from a random installation secret and accepts
-updates only within that identity; timestamps prevent older requests overwriting
-newer observations. The secret is retained locally and sent over HTTPS only to
-this endpoint. The client never falls back to direct table writes. Until the
-SQL is deployed, uploads remain queued while local tracking continues. The RPC bounds and validates
-input; it is not a substitute for deployment-level anti-abuse/rate controls.
-
-Developers cloning this repo for their own fork can blank both constants
-to disable the upload (it then becomes a silent no-op). Do not copy the
-legacy allow-all anon table policies for a production dataset.
+Price history lives only in `chrome.storage.local`. Versions 3.15.2–3.18.4 also
+uploaded observations to a Supabase database; 3.19.0 removed that client, its
+`alarms` permission and host access. On update the storage migration deletes the
+old upload queue (`sync_pending_*`), its clock and the installation secret, and
+keeps only `supabase_identity.deviceId` / `supabase_device_id` so users can still
+request deletion of earlier uploads (see [PRIVACY.md](PRIVACY.md)).
 
 ## Notes
 
@@ -173,7 +145,6 @@ legacy allow-all anon table policies for a production dataset.
 
 ## Not implemented yet
 
-- Cloud history is not read back into verdicts or charts.
 - EAN/GTIN values are searchable and copyable, but products are not yet
   matched or compared across stores.
 - Price targets are checked when a product is visited; there are no proactive
@@ -199,8 +170,6 @@ Embedded Mapbox and Google API tokens, session CSRF tokens and subscriber IDs ar
 redacted from the reference captures.
 For the optional Chrome form test, install Playwright or set `PLAYWRIGHT_MODULE`
 to an existing installation, then run `node --test tests/widget-browser.cjs`.
-`node --test tests/cloud-access.cjs` checks the configured live server without
-creating observations; SQL verification uses a rollback-only transaction.
 Saved-page tests do not certify live hydration and every variant across all 20 stores.
 
 ## Packaging for distribution
@@ -208,25 +177,29 @@ Saved-page tests do not certify live hydration and every variant across all 20 s
 When zipping the extension for the Chrome Web Store or sideloading, exclude
 these files so they don't ship to users:
 
-- `tests/`, `supabase/`, `node_modules/`, `package*.json` — development and deployment files
+- `tests/`, `node_modules/`, `package*.json` — development files
 - `HTML pages and links/` — saved reference HTML samples used while writing
   the content scripts (tracked development fixtures, not extension runtime assets)
 - `AGENTS.md` — development rules
-- `icons/promo-small-440x280.png` — Chrome Web Store promo asset, uploaded
-  separately via the Developer Dashboard (not part of the extension)
+- `icons/promo-small-440x280.png` and `store-assets/` — Chrome Web Store promo
+  tile and screenshots, uploaded separately via the Developer Dashboard (not part
+  of the extension)
 - `CLAUDE.md` — pointer to the shared development rules
 - `PRIVACY.md` — keep in the repo for the Web Store listing link, but the
   zip itself doesn't need to ship it
 - `README.md` — optional, the Web Store listing already describes the extension
 
-The required files in the .zip are: `manifest.json`, `background/`,
+The required files in the .zip are: `manifest.json`, `_locales/`, `background/`,
 `content/`, `popup/`, `ui/`, `utils/`, `i18n/`, and `icons/`.
 
 ### Chrome Web Store assets (uploaded via Developer Dashboard, not bundled)
 
-- **Store icon** `128×128` — taken from `icons/icon128.png`
-- **Small promo tile** `440×280` — `promo-small-440x280.png`
-- Optional larger promo / marquee tiles can be added later
+- **Store icon** `128×128` — taken from `icons/icon128.png` (copy in `store-assets/store-icon-128.png`)
+- **Small promo tile** `440×280` — `promo-small-440x280.png` (also in `store-assets/`)
+- **Screenshots** `1280×800` — `store-assets/screenshot-1.png` … `screenshot-5.png`, each
+  pairing two views of the extension rendered with demo price history
+- **Marquee promo tile** `1400×560` — `store-assets/marquee-1400x560.png`
+- Screenshots and both promo tiles are 24-bit RGB PNGs (no alpha), as the dashboard requires
 
 These are configured under **Store listing → Graphic assets** in the
 Chrome Web Store Developer Dashboard.
@@ -237,14 +210,10 @@ MIT — see [LICENSE](LICENSE).
 
 ## Privacy
 
-This extension stores your local price history in your browser, AND
-attempts a best-effort upload of each recorded daily snapshot (product URL, title, EUR price, EAN,
-observation date, plus a random pseudonymous device ID) to a Postgres
-database hosted on Supabase. The current database-access issue and exact
-field list are disclosed in [PRIVACY.md](PRIVACY.md).
+This extension stores your price history only in your browser's local
+extension storage. It sends no data anywhere and has no server. No personally
+identifiable information, payment data, authentication state, or browsing
+history outside the 20 supported stores is collected.
 
-No personally identifiable information, payment data, authentication
-state, or browsing history outside the 20 supported stores is collected.
-
-See [PRIVACY.md](PRIVACY.md) for the full disclosure, the complete
-list of uploaded fields, and how to request data removal.
+See [PRIVACY.md](PRIVACY.md) for the full policy, including what earlier
+versions uploaded and how to request its removal.

@@ -14,7 +14,6 @@ function harness(initial = {}, hooks = {}) {
     navigator: { userAgent: 'regression-test' },
     fetch: (...args) => { if (!hooks.fetch) throw Error('Network prohibited'); return hooks.fetch(...args); },
     chrome: {
-      alarms: { onAlarm: { addListener() {} }, get: async () => undefined, create: async () => {} },
       storage: { local: {
         async get(keys) {
           const value = keys === null ? clone(state) : Object.fromEntries(keys.filter(k => Object.hasOwn(state, k)).map(k => [k, clone(state[k])]));

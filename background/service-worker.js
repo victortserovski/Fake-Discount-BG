@@ -22,11 +22,6 @@ try {
 } catch (e) {
   console.error('[Fake Discount] Failed to load price-tracker.js:', e);
 }
-try {
-  importScripts(chrome.runtime.getURL('utils/supabase-sync.js'));
-} catch (e) {
-  console.error('[Fake Discount] Failed to load supabase-sync.js:', e);
-}
 
 // Storage manager with retry logic
 let storageManager = null;
@@ -53,14 +48,6 @@ async function initStorageManager() {
 
 // Initialize on startup
 initStorageManager();
-
-// Alarms restart a suspended worker and retry observations saved while offline.
-chrome.alarms.onAlarm.addListener(alarm => {
-  if (alarm.name === 'retryPriceUploads') SupabaseSync.flushPending();
-});
-chrome.alarms.get('retryPriceUploads').then(alarm => {
-  if (!alarm) return chrome.alarms.create('retryPriceUploads', { periodInMinutes: 5 });
-}).catch(error => console.warn('[Fake Discount] Upload retry alarm unavailable:', error.message));
 
 // Notify content scripts when a tab's URL changes (for SPA navigation detection)
 chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
@@ -398,8 +385,8 @@ function isValidImportedProduct(productId, p) {
   return p.history.some(isValidHistoryRow);
 }
 
-// Rows use the same bounds as recording and the ingestion RPC. Future days
-// are rejected: sorted last, they would pose as today's price and upload.
+// Rows use the same bounds as recording. Future days are rejected: sorted
+// last, they would pose as today's price.
 function isValidHistoryRow(h) {
   return !!h && typeof h === 'object' && isValidHistoryDate(h.date)
     && h.date >= '2000-01-01' && h.date <= storageManager.getTodayDate()
@@ -499,28 +486,6 @@ async function handleProductTracking(productData, sendResponse, sender) {
       thumbnail: productData.thumbnail || null,
       ean: productData.ean || null
     });
-
-    // Best-effort write-through to Supabase. Fire-and-forget — never block
-    // local save or widget render on the network. Upload the row this visit
-    // recorded, not the last row (an older import may hold later dates).
-    if (typeof SupabaseSync !== 'undefined' && SupabaseSync.isConfigured()) {
-      const today = storageManager.getTodayDate();
-      const latest = (product.history || []).find(h => h.date === today) || null;
-      if (latest) {
-        SupabaseSync.pushDatapoint({
-          productId,
-          site,
-          url: product.url,
-          title: product.title,
-          thumbnail: product.thumbnail,
-          ean: product.ean,
-          price: latest.price,
-          originalPrice: latest.originalPrice,
-          discount: latest.discount,
-          date: latest.date
-        });
-      }
-    }
 
     // Perform fake discount analysis
     const analysis = detectFakeDiscount({

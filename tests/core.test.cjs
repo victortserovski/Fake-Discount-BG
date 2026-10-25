@@ -83,59 +83,32 @@ test('target writes are serialized and restricted to the sender product', async 
   assert.equal((await h.send({action:'setPriceTarget',productId:'ozone_b',value:20},sender('a'))).success,false);
 });
 
-test('secure uploads share one persisted identity and carry chronological timestamps', async () => {
-  const calls=[];
-  const h=harness({supabase_device_id:'legacy-kept',p_ozone_a:product(),p_ozone_b:product(8,'b')},{fetch:async(url,options)=>{calls.push({url,body:JSON.parse(options.body)});return {ok:true};}});
-  h.load('utils/supabase-sync.js');
-  const entry={...observation(),productId:'ozone_a',date:'2026-09-06'};
-  await Promise.all([h.context.SupabaseSync.pushDatapoint(entry),h.context.SupabaseSync.pushDatapoint({...entry,productId:'ozone_b',price:8})]);
-  await h.context.SupabaseSync.flushPending();
-  assert.equal(calls.length,2);assert.equal(calls[0].body.installation_secret,calls[1].body.installation_secret);
-  assert(calls.every(c=>c.url.endsWith('/rpc/ingest_price_observation')));
-  assert(calls[0].body.observation.client_observed_at<calls[1].body.observation.client_observed_at);
-  assert.equal(h.state.supabase_device_id,'legacy-kept');
-  assert.equal(await h.context.SupabaseSync.getDeviceId(),h.state.supabase_identity.deviceId);
-});
-
-test('failed uploads survive worker restart and newer visits replace a queued day',async()=>{
-  const entry={...observation(),productId:'ozone_a',date:'2026-09-06'};
-  const offline=harness({p_ozone_a:product()}, {fetch:async()=>{throw Error('offline');}});offline.load('utils/supabase-sync.js');
-  await offline.context.SupabaseSync.pushDatapoint(entry);
-  await offline.context.SupabaseSync.pushDatapoint({...entry,price:8});
-  const keys=Object.keys(offline.state).filter(k=>k.startsWith('sync_pending_'));
-  assert.equal(keys.length,1);assert.equal(offline.state[keys[0]].price,8);
-  const calls=[];
-  const online=harness(offline.state,{fetch:async(url,options)=>{calls.push(JSON.parse(options.body));return {ok:true};}});
-  online.load('utils/supabase-sync.js');await online.context.SupabaseSync.flushPending();
-  assert.equal(calls[0].observation.price,8);
-  assert.equal(Object.keys(online.state).filter(k=>k.startsWith('sync_pending_')).length,0);
-});
-
-test('acknowledging an in-flight upload never removes a newer queued observation',async()=>{
-  let release,started;const waiting=new Promise(resolve=>{started=resolve;});
-  const h=harness({p_ozone_a:product()}, {fetch:async()=>{started();await new Promise(resolve=>{release=resolve;});return {ok:true};}});
-  h.load('utils/supabase-sync.js');const entry={...observation(),productId:'ozone_a',date:'2026-09-06'};
-  const first=h.context.SupabaseSync.pushDatapoint(entry);await waiting;
-  const second=h.context.SupabaseSync.pushDatapoint({...entry,price:8});
-  while(!Object.values(h.state).some(v=>v?.product_id==='ozone_a'&&v.price===8))await new Promise(resolve=>setImmediate(resolve));
-  release();await Promise.all([first,second]);
-  assert.equal(h.state['sync_pending_ozone_a:2026-09-06'].price,8);
-});
-
 test('imported image URLs cannot make popup tracking requests',async()=>{
   const h=harness();h.load('background/service-worker.js');
   const result=await h.send({action:'importData',data:{priceHistory:{ozone_a:{...product(),thumbnail:'https://tracker.example/unique-person'}}}});
   assert.equal(result.imported,1);assert.equal(h.state.p_ozone_a.thumbnail,null);
 });
 
-test('identity initialization retries after storage failure',async()=>{
-  let fail=true;const h=harness({}, {set:async data=>{if(fail&&data.supabase_identity)throw Error('quota');}});h.load('utils/supabase-sync.js');
-  await assert.rejects(h.context.SupabaseSync.getDeviceId());fail=false;
-  assert.equal(await h.context.SupabaseSync.getDeviceId(),h.state.supabase_identity.deviceId);
+test('price history stays local: tracking makes no network request and asks for no cloud access',async()=>{
+  const calls=[],url=observation().url;
+  const h=harness({},{fetch:async(...args)=>{calls.push(args);return {ok:true};}});h.load('background/service-worker.js');
+  const res=await h.send({action:'trackProduct',data:{...observation(10),id:'ozone_a'}},{url,tab:{id:1,url}});
+  await new Promise(resolve=>setTimeout(resolve,20));
+  assert.equal(res.success,true);assert.equal(h.state.p_ozone_a.history.at(-1).price,10);assert.equal(calls.length,0);
+  const manifest=JSON.parse(read('manifest.json'));
+  assert.deepEqual(manifest.permissions,['storage','tabs']);
+  assert(manifest.host_permissions.every(p=>/^https:\/\/(www\.)?[a-z-]+\.bg\/\*$/.test(p)),'only store hosts');
 });
 
-const localToday=()=>{const d=new Date();return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;};
-const settle=async until=>{for(let i=0;i<200&&!until();i++)await new Promise(resolve=>setImmediate(resolve));};
+test('migration removes the old upload queue and secret but keeps the device ID',async()=>{
+  const h=harness({p_ozone_a:product(),'sync_pending_ozone_a:2026-09-06':{product_id:'ozone_a',price:10},supabase_last_observation:5,
+    supabase_identity:{deviceId:'d-1',secret:'s'.repeat(64)},supabase_device_id:'legacy'});
+  h.load('utils/storage.js');const manager=new h.context.PriceStorageManager();await manager.ensureMigrated();
+  assert.equal(Object.keys(h.state).some(k=>k.startsWith('sync_pending_')),false);
+  assert.equal(h.state.supabase_last_observation,undefined);
+  assert.deepEqual(h.state.supabase_identity,{deviceId:'d-1'});assert.equal(h.state.supabase_device_id,'legacy');
+  assert.deepEqual(h.state.product_index,['ozone_a']);assert.equal(h.state.p_ozone_a.history[0].price,10);
+});
 
 test('import rejects future-dated and out-of-range history rows',async()=>{
   const h=harness();h.load('background/service-worker.js');
@@ -146,36 +119,6 @@ test('import rejects future-dated and out-of-range history rows',async()=>{
   assert.deepEqual(h.state.p_ozone_a.history,[{date:'2026-09-01',price:10,originalPrice:null,discount:null}]);
 });
 
-test('tracking uploads the row it records even when history holds a later date',async()=>{
-  const calls=[],url=observation().url,stored=product(50);stored.history=[{date:'2099-01-01',price:999999}];
-  const h=harness({storage_migrated_v2:true,p_ozone_a:stored,product_index:['ozone_a']},{fetch:async(u,o)=>{calls.push(JSON.parse(o.body).observation);return {ok:true};}});
-  h.load('background/service-worker.js');
-  assert.equal((await h.send({action:'trackProduct',data:{...observation(10),id:'ozone_a'}},{url,tab:{id:1,url}})).success,true);
-  await settle(()=>calls.length);
-  assert.deepEqual([calls[0].observed_date,calls[0].price],[localToday(),10]);
-});
-
-test('clear and delete also drop the queued uploads of that history',async()=>{
-  const queued=id=>({product_id:id,site:'ozone'});
-  const h=harness({storage_migrated_v2:true,p_ozone_a:product(),p_ozone_b:product(8,'b'),product_index:['ozone_a','ozone_b'],
-    'sync_pending_ozone_a:2026-09-01':queued('ozone_a'),'sync_pending_ozone_ab:2026-09-01':queued('ozone_ab'),'sync_pending_ozone_b:2026-09-01':queued('ozone_b')});
-  h.load('utils/storage.js');const manager=new h.context.PriceStorageManager();
-  await manager.deleteProduct('ozone_a');
-  assert.deepEqual(Object.keys(h.state).filter(k=>k.startsWith('sync_pending_')).sort(),['sync_pending_ozone_ab:2026-09-01','sync_pending_ozone_b:2026-09-01']);
-  await manager.clearAll();
-  assert.equal(Object.keys(h.state).some(k=>k.startsWith('sync_pending_')),false);
-});
-
-test('queued uploads pause while the store is off and drop once the product is deleted',async()=>{
-  const calls=[],entry={...observation(),productId:'ozone_a',date:'2026-09-06'};
-  const h=harness({p_ozone_a:product(),enableOzone:false},{fetch:async(u,o)=>{calls.push(JSON.parse(o.body));return {ok:true};}});
-  h.load('utils/supabase-sync.js');
-  await h.context.SupabaseSync.pushDatapoint(entry);
-  assert.equal(calls.length,0);assert(h.state['sync_pending_ozone_a:2026-09-06']);
-  h.state.enableOzone=true;delete h.state.p_ozone_a;
-  await h.context.SupabaseSync.flushPending();
-  assert.equal(calls.length,0);assert.equal(h.state['sync_pending_ozone_a:2026-09-06'],undefined);
-});
 
 test('Notino variant pages may carry the family ID; other IDs stay rejected',async()=>{
   const h=harness();h.load('background/service-worker.js');

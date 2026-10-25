@@ -137,8 +137,7 @@
       // stale `price` on OutOfStock offers (the last-known list price), and
       // for OOS variants the visible price block is also hidden — so without
       // this guard we'd record a phantom data point that the user can't
-      // actually buy at, polluting both the local history and any future
-      // cloud sync. Returning price=null lets ContentScriptBase.trackAndDisplay
+      // actually buy at, polluting the local history. Returning price=null lets ContentScriptBase.trackAndDisplay
       // render the widget with existing history without saving a new entry.
       let unavailable = false;
       const matched = pageOffers[0];

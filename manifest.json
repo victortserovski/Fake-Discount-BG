@@ -1,12 +1,12 @@
 {
   "manifest_version": 3,
-  "name": "Fake Discount Bulgaria - Catch Faked Sales",
-  "version": "3.18.3",
-  "description": "Tracks daily price history and shows heuristic deal signals on product pages across 20 Bulgarian online stores.",
+  "name": "__MSG_appName__",
+  "version": "3.19.0",
+  "default_locale": "en",
+  "description": "__MSG_appDescription__",
   "permissions": [
     "storage",
-    "tabs",
-    "alarms"
+    "tabs"
   ],
   "host_permissions": [
     "https://emag.bg/*",
@@ -48,8 +48,7 @@
     "https://www.sportdepot.bg/*",
     "https://sportdepot.bg/*",
     "https://www.ebag.bg/*",
-    "https://ebag.bg/*",
-    "https://gdfsqujcjqktjhhgkxbs.supabase.co/*"
+    "https://ebag.bg/*"
   ],
   "background": {
     "service_worker": "background/service-worker.js"
