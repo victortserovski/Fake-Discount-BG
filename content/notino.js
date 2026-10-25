@@ -192,9 +192,15 @@
     // price/buy area regardless of which variant is selected. (An earlier
     // attempt to walk up N parents from the price wrapper landed at
     // different depths between variants and produced inconsistent results.)
+    // The tablist itself is content-width (~490px); its single-child
+    // wrappers lead to the full left-column tab bar (~830px), so insert
+    // before the outermost single-child wrapper. Layout-independent — no
+    // reliance on Notino's hashed class names.
     const tablist = document.querySelector('[data-testid="tablist"]');
     if (tablist && tablist.parentNode) {
-      tablist.parentNode.insertBefore(widgetContainer, tablist);
+      let anchor = tablist;
+      while (anchor.parentElement && anchor.parentElement.children.length === 1) anchor = anchor.parentElement;
+      anchor.parentNode.insertBefore(widgetContainer, anchor);
       inserted = true;
     }
 
@@ -212,7 +218,6 @@
       main.appendChild(widgetContainer);
     }
 
-    ContentScriptBase.loadWidgetCSS();
     await ContentScriptBase.loadWidgetScripts(widgetContainer, product, analysis);
   }
 

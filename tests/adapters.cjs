@@ -22,7 +22,7 @@ async function setup(site, html, url) {
     chrome:{storage:{local:{async get(){return {};}}}},
     setTimeout(fn){queueMicrotask(fn);return 1;}, clearTimeout(){}, MutationObserver: class { observe(){} disconnect(){} },
     getComputedStyle(el){return {display:el.style.display || '', visibility:el.style.visibility || ''};},
-    ContentScriptBase:{isContextValid(){return true;},createWidgetContainer(){const e=document.createElement('div');e.id='fake-discount-widget';return e;},loadWidgetCSS(){},async loadWidgetScripts(){},setupNavigation(){}}
+    ContentScriptBase:{isContextValid(){return true;},createWidgetContainer(){const e=document.createElement('div');e.id='fake-discount-widget';return e;},async loadWidgetScripts(){},setupNavigation(){}}
   });
   vm.runInContext(parserSource+'\nglobalThis.ProductParser=ProductParser; ProductParser.waitForElement=async()=>null;',context);
   const source = fs.readFileSync(path.join(root,'content',site+'.js'),'utf8');

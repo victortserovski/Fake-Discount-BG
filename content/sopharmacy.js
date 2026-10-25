@@ -111,16 +111,21 @@
     // AFTER the tab block — still full-width, just below the spec/
     // description tabs, in the "extra info / reviews / related"
     // gap before the page footer.
+    // The tabs now live in the right column, so "after the tabs" left the
+    // panel squeezed into that column with the left side empty. Insert
+    // after the whole `.product` block instead: full width, directly above
+    // "Клиентите също купуват".
     const tabs = document.querySelector('.tabs, .product-tabs, .product-detail-info');
-    if (tabs && tabs.parentNode) {
-      tabs.parentNode.insertBefore(widgetContainer, tabs.nextSibling);
+    const productBlock = tabs && tabs.closest('.product');
+    const anchor = productBlock || tabs;
+    if (anchor && anchor.parentNode) {
+      anchor.parentNode.insertBefore(widgetContainer, anchor.nextSibling);
       inserted = true;
     }
     if (!inserted) {
       const main = document.querySelector('main, .site') || document.body;
       main.appendChild(widgetContainer);
     }
-    ContentScriptBase.loadWidgetCSS();
     await ContentScriptBase.loadWidgetScripts(widgetContainer, product, analysis);
   }
 

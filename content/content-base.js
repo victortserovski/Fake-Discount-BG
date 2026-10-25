@@ -16,17 +16,16 @@ const ContentScriptBase = {
         }
     },
 
-    // Show error in widget container
+    // Show error in widget container (rendered inside the widget's shadow root)
     async showWidgetError(container) {
-        while (container.firstChild) {
-            container.removeChild(container.firstChild);
-        }
-        const errorDiv = document.createElement('div');
-        errorDiv.style.cssText = 'padding: 20px; background: rgba(254, 226, 226, 0.9); border: 1px solid #fcc; border-radius: 12px; color: #c00; text-align: center;';
         const translations = window.i18n;
         if (translations) await translations.loadTranslations();
-        errorDiv.textContent = translations ? translations.t('errorLoadingWidget') : '';
-        container.appendChild(errorDiv);
+        const message = translations ? translations.t('errorLoadingWidget') : '';
+        if (typeof FakeDiscountWidget !== 'undefined' && FakeDiscountWidget.renderError) {
+            FakeDiscountWidget.renderError(container, message);
+            return;
+        }
+        container.textContent = message;
     },
 
     // Cleanup existing widget
@@ -37,23 +36,19 @@ const ContentScriptBase = {
         }
     },
 
-    // Create widget container with common styles. The z-index + position
-    // + isolation defense is applied at the base layer because several
-    // SPA storefronts (dm, About You, Answear) use overlay containers,
-    // transforms, or position:fixed sub-trees that previously caused
-    // the widget to render BEHIND product content or in front of fixed
-    // top menus depending on which container we inserted into.
+    // Create the widget host element. The panel itself renders inside a
+    // shadow root; these inline styles harden the host box against retailer
+    // CSS (`all: initial` also stops inherited fonts/colours leaking into the
+    // shadow tree). The z-index + position + isolation defense is applied at
+    // the base layer because several SPA storefronts (dm, About You, Answear)
+    // use overlay containers, transforms, or position:fixed sub-trees that
+    // previously caused the widget to render BEHIND product content or in
+    // front of fixed top menus depending on which container we inserted into.
     createWidgetContainer() {
         const widgetContainer = document.createElement('div');
         widgetContainer.id = 'fake-discount-widget';
-        widgetContainer.style.marginTop = '20px';
-        widgetContainer.style.marginBottom = '20px';
-        widgetContainer.style.width = '100%';
-        widgetContainer.style.clear = 'both';
-        widgetContainer.style.boxSizing = 'border-box';
-        widgetContainer.style.position = 'relative';
-        widgetContainer.style.zIndex = '0';
-        widgetContainer.style.isolation = 'isolate';
+        widgetContainer.style.cssText = 'all: initial; display: block; box-sizing: border-box; width: 100%; min-width: 280px; max-width: 1200px;'
+            + ' margin: 20px auto; clear: both; float: none; position: relative; z-index: 0; isolation: isolate;';
         return widgetContainer;
     },
 
@@ -64,9 +59,13 @@ const ContentScriptBase = {
                 widgetContainer.remove();
                 return;
             }
-            // Retailer submit controls must never own our target input.
+            // Retailer submit controls must never own our target input, so the
+            // widget is moved after the outermost form. An adapter may opt out
+            // with data-allow-in-form when the only good spot is inside a form:
+            // the panel's input lives in a shadow root and has no form owner,
+            // and the host stops click/submit/key events in the bubble phase.
             const form = widgetContainer.closest('form');
-            if (form) {
+            if (form && widgetContainer.dataset.allowInForm !== 'true') {
                 let outerForm = form;
                 while (outerForm.parentElement?.closest('form')) outerForm = outerForm.parentElement.closest('form');
                 outerForm.parentNode.insertBefore(widgetContainer, outerForm.nextSibling);
@@ -80,17 +79,6 @@ const ContentScriptBase = {
         } catch (error) {
             console.error('[Fake Discount] Widget init error:', error);
             await this.showWidgetError(widgetContainer);
-        }
-    },
-
-    // Load widget CSS
-    loadWidgetCSS() {
-        if (!this.isContextValid()) return;
-        if (!document.querySelector('link[href*="price-graph-widget.css"]')) {
-            const link = document.createElement('link');
-            link.rel = 'stylesheet';
-            link.href = chrome.runtime.getURL('ui/price-graph-widget.css');
-            document.head.appendChild(link);
         }
     },
 

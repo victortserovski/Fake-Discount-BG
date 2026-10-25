@@ -114,7 +114,6 @@
       const main = document.querySelector('main') || document.body;
       main.appendChild(widgetContainer);
     }
-    ContentScriptBase.loadWidgetCSS();
     await ContentScriptBase.loadWidgetScripts(widgetContainer, product, analysis);
   }
 

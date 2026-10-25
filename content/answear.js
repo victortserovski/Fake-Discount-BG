@@ -149,6 +149,15 @@
       )) {
         price = null;
       }
+      // Unavailable products keep the price block but render no basket
+      // button at all, plus the visible "Недостъпен продукт" notice. Both
+      // are required, so in-stock pages (button present) are never hit.
+      const basketButton = mainCard.querySelector(
+        '[data-test*="addToBasket"], [data-test*="addToCart"], [data-test="add_to_cart"], [data-test="add_to_basket"]'
+      );
+      if (!basketButton && /Недостъпен продукт/i.test(mainCard.textContent || '')) {
+        price = null;
+      }
 
       // Was-price (when discounted) — MinimalLabel variants are was-price rows.
       let originalPrice = null;
@@ -195,8 +204,13 @@
     widgetContainer.style.padding = '0 15px';
 
     let inserted = false;
-    // Anchor: before the description tabs section if available.
-    const tabs = document.querySelector('#tab-product-description-tabs_0, [class*="ProductDescription"], [class*="DescriptionTabs"]');
+    // Anchor: before the whole description tabs block. `#tab-product-
+    // description-tabs_0` is a single tab *button* inside a flex tab bar —
+    // inserting next to it wedged the panel into the tab row — so climb to
+    // the tabs root (the block right after the gallery/details hero).
+    const tab = document.querySelector('#tab-product-description-tabs_0');
+    const tabs = (tab && tab.closest('[class*="tabsRoot"]'))
+      || document.querySelector('[class*="TabsStyleProvider__tabsRoot"], [class*="ProductDescription"], [class*="DescriptionTabs"]');
     if (tabs && tabs.parentNode) {
       tabs.parentNode.insertBefore(widgetContainer, tabs);
       inserted = true;
@@ -205,7 +219,6 @@
       const main = document.querySelector('#main-container, main, #root') || document.body;
       main.appendChild(widgetContainer);
     }
-    ContentScriptBase.loadWidgetCSS();
     await ContentScriptBase.loadWidgetScripts(widgetContainer, product, analysis);
   }
 

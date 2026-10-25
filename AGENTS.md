@@ -106,10 +106,33 @@ take the higher bump (one MINOR absorbs any number of patches inside it).
 - **DOM-only construction in popup and widget.** Use `createElement` /
   `appendChild`. Never `innerHTML` with product data — XSS risk.
 - **Widget event isolation: bubble phase only.** The widget container stops
-  propagation of click / mousedown / etc. in the **bubble phase only**. Adding
+  propagation of click / mousedown / keydown / etc. in the **bubble phase only**. Adding
   a capture-phase listener will swallow events before they reach the widget's
   own input/button — this bug has been here before, don't reintroduce it. See
   the comment around the listener loop in `ui/price-graph-widget.js`.
+- **The price panel renders in an open shadow root.** `FakeDiscountWidget.init`
+  attaches a shadow root to the `#fake-discount-widget` host and loads
+  `ui/price-graph-widget.css` *inside* it (web-accessible). Never inject
+  page-level widget CSS or style the panel from the page — retailer CSS and the
+  panel stay apart. The host keeps the inline `all: initial` + `min-width`
+  hardening from `ContentScriptBase.createWidgetContainer` (`container-type`
+  gives the panel no intrinsic width). Playwright CSS locators pierce open
+  shadow roots. SVG must not use `url(#id)` references (Zora's `<base href>`
+  breaks them and fills turn black).
+- **Shared UI kit.** `ui/ui-kit.js` (`window.FDKit`: DOM builders, icons,
+  store metadata, verdict tones, locale formatting) loads in the popup and in
+  every content-script list before the chart and widget — add it to new
+  manifest entries. Its `SITES` map is the popup's supported-host source, so
+  keep it aligned with `SUPPORTED_HOSTS` in the service worker.
+- **Verdict price params are numbers.** `background/price-tracker.js` passes
+  `*Price` reason params rounded to cents; the widget formats them with the
+  active locale's EUR format so the explanation matches every other price.
+  Pluralised strings use `<key>One` / `<key>Other` pairs via `FDKit.tPlural`.
+- **Popup import runs in the full-tab view.** A file picker opened from the
+  toolbar popup can close the popup (and its change handler) on some
+  platforms, so the popup's Import opens `popup.html?fullview=1#data`. The
+  popup uses in-page toasts and a `<dialog>` confirmation, not `alert()` /
+  `confirm()`.
 - **Per-product write queue.** `PriceStorageManager.saveProduct` and
   `deleteProduct` serialize writes per key via `_writeQueue`. Don't bypass
   it — concurrent saves/deletes to the same product can race.
@@ -118,6 +141,8 @@ take the higher bump (one MINOR absorbs any number of patches inside it).
   (e.g. with the "COMBI" code), not what a regular visitor pays. Always read
   the displayed price from `[data-testid="pd-dual-price"]` (parse the first
   EUR amount). JSON-LD is fine for title, brand, image, sku — just not price.
+  The October 2026 pages no longer render `pd-dual-price`; the
+  `[data-testid="pd-price-wrapper"]` fallback is what reads the price now.
 - **Ozone `.old-price` is ПЦД (RRP), NOT a "was-price" — skip it for
   `originalPrice`.** Ozone wraps the manufacturer's recommended retail price
   inside `<p class="old-price"><span class="price-label">ПЦД:</span>…</p>`.
@@ -129,6 +154,13 @@ take the higher bump (one MINOR absorbs any number of patches inside it).
   parsing the price — see the loop guard around `oldPriceSelectors`. If Ozone
   ever ships a genuine struck-through previous price WITHOUT the ПЦД label,
   the loop will still capture it. Do not "simplify" by removing the guard.
+  Since October 2026 Ozone also prints the 30-day lowest price (EU Omnibus
+  reference) as `<p class="old-price">ПЦД: …</p>` with the explanation "Най-
+  ниската цена… през последните 30 дни"; the supplier RRP variant is
+  `.old-price.spr` ("Препоръчителна цена от доставчик"). The guard rejects
+  both because both carry "ПЦД". That is intended: per the user (2026-10-25)
+  the 30-day low is never a was-price on any store (same rule as eMAG,
+  Fashion Days and Notino).
 - **Out-of-stock products: return `price: null` from `extractProductData`.**
   When a page indicates the product is unavailable, the adapter must set
   `price = null` so `ContentScriptBase.trackAndDisplay` short-circuits into
@@ -156,8 +188,21 @@ take the higher bump (one MINOR absorbs any number of patches inside it).
          stocked somewhere). From the extension's perspective the user
          still can't online-purchase at the displayed price, so we treat
          online-only OOS the same as full OOS.
+    - **About You** — fully sold-out pages keep the price but drop the
+      basket button and JSON-LD; no basket button AND (the
+      `sizeReminderNotifyButton` or "За съжаление разпродадено") means OOS.
+    - **Answear** — unavailable pages keep the price block but render no
+      basket button; no `[data-test*="addToBasket"]`-family button AND the
+      "Недостъпен продукт" notice means OOS. Both signals are required.
+    - **Delisted products** are not product pages at all: Plesio redirects to
+      a category (no `.productPricingRow.productPrices`), dm keeps the
+      `/p/d/<id>` URL but renders "Грешен номер на артикул?" without
+      `[data-dmid="product-detail-page"]`, Decathlon redirects to the
+      category. `isProductPage()` returns false there.
   Existing history is preserved (we just skip today's entry); the widget
-  renders empty stats per `trackAndDisplay`'s no-price branch.
+  renders its "No price for today" state per `trackAndDisplay`'s no-price
+  branch (an empty history can only mean no purchasable price, because a
+  successful visit always records today's observation).
 - **EAN/GTIN extraction is generic, not per-site.** `ProductParser.extractEAN`
   in `content/product-parser.js` runs four tiers (JSON-LD → meta → microdata
   → visible-text scan) and works for every site. New site integrations should
@@ -303,8 +348,15 @@ take the higher bump (one MINOR absorbs any number of patches inside it).
   price source. Read the visible-DOM `.price-old-js` only AFTER hydration
   for the optional was-price; the placeholder is `<i>0.00</i>` on
   full-price products, so accept only when value > 0 AND > current price.
+  A was-price (from `cc_page_data` or the DOM) counts only when the main
+  `.product-details-js .price-old-js` exists without `.hide`: flyer
+  ("Брошура") pages omit it while `cc_page_data` still carries a higher
+  list price the shopper never sees.
   OOS is signalled by `<link itemprop="availability" href=".../OutOfStock">`
-  microdata ONLY — `<span class="_product-out-of-stock">` is a hidden
+  microdata, or by the "Продуктът е изчерпан онлайн…" notice in
+  `._product-details-parameters p > span` (online-only sell-out; microdata
+  and `cc_page_data` still say in stock, the buy button is gone) —
+  `<span class="_product-out-of-stock">` is a hidden
   template present on every product page (parent `out-of-stock-js hide`)
   and JS toggles `hide` per variant; treating its mere DOM presence as
   OOS made every Zora product return `price=null`.
@@ -333,8 +385,9 @@ take the higher bump (one MINOR absorbs any number of patches inside it).
   but several pages have only the hashed classes — fall back to a
   textContent EUR scan within `[class*="ProductCardStyles"]`. Both need
   ~1500-2000ms post-load hydration delay.
-- **dm-drogeriemarkt is a heavy SPA — saved-page samples are 10KB
-  empty shells.** All product data renders client-side. The adapter
+- **dm-drogeriemarkt is a heavy SPA — "Save page as" gives a 10KB empty
+  shell; the October 2026 fixtures are rendered-DOM captures.** All product
+  data renders client-side. dm runs no discounts at all. The adapter
   waits 2.5s for hydration, prefers `meta[itemprop="price"]` (often
   emitted post-mount), then falls back to scanning visible "X,XX €"
   tokens inside `[data-dmid="product-detail"]` / `[class*="ProductDetail"]`.
@@ -351,8 +404,11 @@ take the higher bump (one MINOR absorbs any number of patches inside it).
 - **Fashion Days references are not seller was-prices.** Skip `.cmmp30-price` and reject `.rrp-price` / `.old-price__value` when their `.rrp-wrapper` contains ПЦД or ПЦ. Strikethrough alone does not prove a previous selling price.
 - **Storage mutations share a global queue in addition to per-product queues.** Migration publishes its promise before any await; startup rebuilds the index without deleting product history. Import commits records and index in one batch. Clear enumerates all `p_*` keys. Target edits go through the service worker; never write the whole target map from widgets.
 - **Price parsing selects one EUR amount before stripping currency text.** Preserve full SportDepot model/colour IDs; do not auto-merge ambiguous old numeric keys.
-- **Keep widgets outside retailer forms.** The shared loader relocates them; Enter cancels its default action before Set. Event isolation stays in the bubble phase. Discard stale navigation responses before rendering.
-- **Imported URLs and IDs are validated.** Keep popup and worker supported-host lists aligned; discard imported thumbnail URLs to prevent tracking requests from untrusted backups. Images refresh on retailer visits. History dates are valid YYYY-MM-DD and sorted/deduplicated on import.
+- **Keep widgets outside retailer forms.** The shared loader relocates them; Enter cancels its default action before Set. Event isolation stays in the bubble phase. Discard stale navigation responses before rendering. An adapter may opt out with `widgetContainer.dataset.allowInForm = 'true'` only when the sole good spot is inside a form (Ozone: `.product-view-main > .clear` sits inside `#product_addtocart_form`; Zora: the whole product section, tabs included, sits inside `form.add-to-cart-form-js`); the panel's input lives in the shadow root and has no form owner, and Enter there was verified not to submit the cart form on both stores.
+- **Chart placement: full width, directly under the product hero.** Each adapter inserts the panel at the first full-width boundary after the gallery + buy box (verified with a 1200×480 placeholder on live pages, October 2026): eMAG/Technopolis/Ardes/Plesio/About You/Obuvki/Praktiker/Sport Depot unchanged; Ozone after `.product-view-main > .clear` (in-form opt-in); Notino before the description tablist, climbing single-child wrappers; Technomarket inside `section.product_details .product-info` (fills the space under the gallery); Answear before the description `tabsRoot` (never next to the tab button); Decathlon after `.product-info`; dm before the info section that wraps `description-group`; Fashion Days before `.tabbable-line`; Lilly before `section#description` (`#related-products-field` is now a hidden cart input); SOpharmacy after `.product`; Mr. Bricolage before `#pdpTabs`; eBag in the left column right after the gallery; Zora before `.tabbed-content._product-details-tabs` with the in-form opt-in (checked on the hand-saved pages only — Cloudflare blocks the built-in browser). Keep the old anchors as guarded fallbacks (`if (!inserted)`) so a later anchor never moves the panel again.
+- **eBag was-price is the main column's `.line-through`.** Accept it only when greater than the current price.
+- **The 30-day lowest price (EU Omnibus reference) is never a was-price.** Decided by the user on 2026-10-25 for every store. eMAG's struck price is now that reference (`.pricing-block .rrp-lp30d s`; the ПЦД variant has no `<s>` and contains "ПЦД:"), so the adapter's `.product-old-price` selectors match nothing and eMAG reports no `originalPrice` — intended. Don't add a selector for `.rrp-lp30d`, and don't remove Ozone's ПЦД guard, Fashion Days' `.cmmp30-price` skip or Notino's fixed `originalPrice = null` to "recover" discounts.
+- **Imported URLs and IDs are validated.** Keep popup (`FDKit.SITES`) and worker supported-host lists aligned; discard imported thumbnail URLs to prevent tracking requests from untrusted backups. Images refresh on retailer visits. History dates are valid YYYY-MM-DD and sorted/deduplicated on import.
 - **Upload retries are durable.** `sync_pending_*` entries hold the latest unsent snapshot per product/day. Serialize queue changes, persist before requesting the RPC, and acknowledge only the matching observation timestamp. The five-minute `alarms` wakeup retries after worker restarts; it never polls retailers. Removing an acknowledged queue entry must never remove price history.
 
 ## 7. Before declaring work done
@@ -388,10 +444,12 @@ take the higher bump (one MINOR absorbs any number of patches inside it).
 - `content/{emag,ozone,notino,technopolis,technomarket,zora,ardes,plesio,aboutyou,answear,decathlon,dm,fashiondays,lilly,bricolage,obuvki,praktiker,sopharmacy,sportdepot,ebag}.js` — site-specific price extraction + widget injection
 - `content/content-base.js` — shared SPA navigation listener, widget loader
 - `content/product-parser.js` — `ProductParser` (URL → ID, price text → number)
-- `ui/price-graph-widget.js` — `FakeDiscountWidget.init()` and target-price logic
-- `ui/advanced-chart.js` — SVG chart with avg + target lines
-- `popup/` — tabbed UI (Products / Settings / Data) with search, multi-site
-  filter chips, sort dropdown, persistent footer, and a "↗" link that
+- `ui/ui-kit.js` — `FDKit` shared by popup and widget (DOM builders, icons, store metadata, formatting)
+- `ui/price-graph-widget.js` — `FakeDiscountWidget.init()` (shadow-root panel) and target-price logic
+- `ui/price-graph-widget.css` — panel styles, loaded inside the shadow root only
+- `ui/advanced-chart.js` — SVG step chart with avg, target and claimed was-price lines
+- `popup/` — tabbed UI (Products / Settings / Data) with search, store
+  filter chips, sort dropdown, persistent footer, and an expand button that
   re-opens the popup as a full Chrome tab via `?fullview=1`
 - `i18n/{bg,en}.json` — translations (keep keys in sync between files)
 

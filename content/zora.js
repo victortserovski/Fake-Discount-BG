@@ -10,9 +10,10 @@
 // current price; we only consult `.price-old-js` after a delay for the
 // optional was-price.
 //
-// OOS signals (server-rendered, both reliable):
+// OOS signals (server-rendered):
 //   - <link itemprop="availability" href="https://schema.org/OutOfStock">
-//   - <span class="_product-out-of-stock">Няма наличност</span>
+//   - the "Продуктът е изчерпан онлайн…" notice in the parameters block
+//     (online-only sell-out; microdata still says InStock)
 (async function () {
   const settings = await chrome.storage.local.get(['enableZora']);
   if (settings.enableZora === false) {
@@ -66,7 +67,18 @@
     return null;
   }
 
+  // The main price block keeps a struck `.price-old-js` without `.hide` only
+  // when the shop shows a was-price (server-rendered, before hydration fills
+  // it in). Full-price pages mark it `.hide`; flyer ("Брошура") pages omit
+  // it although cc_page_data still carries a higher list price — a hidden
+  // list price is not a claim the shopper sees, so it never counts.
+  function showsOldPrice() {
+    const el = document.querySelector('.product-details-js .price-old-js');
+    return !!el && !el.classList.contains('hide');
+  }
+
   function readCcPageDataWasPrice(currentPrice) {
+    if (!showsOldPrice()) return null;
     const cc = parseCcPageDataFromScript();
     if (!cc) return null;
     const list = parseFloat(cc.price);
@@ -77,8 +89,8 @@
   }
 
   function readVisibleOldPrice(currentPrice) {
-    const el = document.querySelector('._product-details-price-old.price-old-js, .price-old-js');
-    if (!el) return null;
+    if (!showsOldPrice()) return null;
+    const el = document.querySelector('.product-details-js .price-old-js');
     // The numeric value is rendered inside an <i> child after hydration.
     const text = (el.querySelector('i')?.textContent || el.textContent || '').trim();
     const m = text.match(/(\d[\d\s., ]*)/);
@@ -119,6 +131,17 @@
       const availLink = document.querySelector('link[itemprop="availability"]');
       const oosFromMicrodata = availLink && /OutOfStock/i.test(availLink.getAttribute('href') || '');
       if (oosFromMicrodata) {
+        price = null;
+      }
+      // Online-only sell-outs keep InStock microdata and in_stock variant
+      // data, but drop the buy button and show an orange notice in the
+      // parameters block ("Продуктът е изчерпан онлайн, ограничени
+      // наличности само в някои физически магазини"). It can't be bought
+      // online at that price, so treat it as OOS (same rule as Technopolis).
+      // Zora's own script matches the notice with this selector.
+      const onlineOos = [...document.querySelectorAll('.product-details-js ._product-details-parameters p > span')]
+        .some(el => /изчерпан онлайн/i.test(el.textContent || ''));
+      if (onlineOos) {
         price = null;
       }
 
@@ -202,9 +225,13 @@
     // is a sibling of the product-details row and spans the full content
     // width. Inserting here lets the widget take the whole content width
     // instead of being squeezed inside the right-rail buy column.
+    // The whole product section (tabs included) sits inside the add-to-cart
+    // form, so opt out of the loader's form relocation — otherwise the
+    // panel drops below the tabs and the tall right sidebar.
     const tabsBlock = document.querySelector('.tabbed-content._product-details-tabs');
     if (tabsBlock && tabsBlock.parentNode) {
       tabsBlock.parentNode.insertBefore(widgetContainer, tabsBlock);
+      widgetContainer.dataset.allowInForm = 'true';
       inserted = true;
     }
 
@@ -223,7 +250,6 @@
       main.appendChild(widgetContainer);
     }
 
-    ContentScriptBase.loadWidgetCSS();
     await ContentScriptBase.loadWidgetScripts(widgetContainer, product, analysis);
   }
 

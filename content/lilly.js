@@ -148,7 +148,13 @@
     // rail — which is exactly the "way too low" position the user saw.
     // Anchor BEFORE `#related-products-field` instead: that places it
     // directly under the hero (.product-info-main).
+    // Current (Hyvä) theme: `section#description` follows the hero
+    // directly, and `#related-products-field` is now a hidden <input>
+    // inside the cart form (anchoring there pushed the panel into the
+    // narrow buy column via the form relocation), so the description
+    // section comes first.
     const anchors = [
+      'section#description',
       '#related-products-field',
       '.related-products-field',
       '.stenik-recommended-products',
@@ -167,7 +173,6 @@
       const main = document.querySelector('main') || document.body;
       main.appendChild(widgetContainer);
     }
-    ContentScriptBase.loadWidgetCSS();
     await ContentScriptBase.loadWidgetScripts(widgetContainer, product, analysis);
   }
 

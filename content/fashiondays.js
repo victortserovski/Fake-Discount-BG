@@ -168,12 +168,12 @@
     widgetContainer.style.padding = '0 15px';
 
     let inserted = false;
-    // Fashion Days renders a full-width tab content area below the
-    // image+price hero. Anchor BEFORE the recommendations carousel
-    // (".similar-products") which is the first major section that
-    // spans the page width — that puts the widget right after the
-    // hero area at the same full width.
+    // Fashion Days renders a full-width tab block (Описание / Доставка /
+    // Връщане) right below the image+price hero. Anchor BEFORE it so the
+    // panel sits directly under the hero; the recommendations carousel
+    // (".similar-products") comes after the tabs and is only a fallback.
     const anchors = [
+      '.tabbable-line',
       '.similar-products',
       '.tab-content.responsive',
       '.product-description-content',
@@ -191,7 +191,6 @@
       const main = document.querySelector('main') || document.body;
       main.appendChild(widgetContainer);
     }
-    ContentScriptBase.loadWidgetCSS();
     await ContentScriptBase.loadWidgetScripts(widgetContainer, product, analysis);
   }
 

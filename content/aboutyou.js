@@ -90,6 +90,13 @@
       if (basketBtn && (basketBtn.disabled || basketBtn.getAttribute('aria-disabled') === 'true')) {
         oos = true;
       }
+      // Fully sold-out pages keep showing a price but drop the basket
+      // button (and JSON-LD) and offer a back-in-stock reminder instead:
+      // "За съжаление разпродадено".
+      if (!basketBtn && (document.querySelector('[data-testid="sizeReminderNotifyButton"]')
+        || /За съжаление разпродадено/i.test(document.body.textContent || ''))) {
+        oos = true;
+      }
       if (oos) price = null;
 
       const originalPrice = readEur('[data-testid="originalPrice"]', priceRoot);
@@ -184,7 +191,6 @@
       const root = document.querySelector('#react-root, main') || document.body;
       root.appendChild(widgetContainer);
     }
-    ContentScriptBase.loadWidgetCSS();
     await ContentScriptBase.loadWidgetScripts(widgetContainer, product, analysis);
   }
 

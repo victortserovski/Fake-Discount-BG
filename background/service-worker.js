@@ -535,10 +535,10 @@ async function handleProductTracking(productData, sendResponse, sender) {
       const tabId = sender?.tab?.id;
       if (analysis.verdict === 'FAKE_DISCOUNT') {
         chrome.action.setBadgeText({ text: '!', tabId });
-        chrome.action.setBadgeBackgroundColor({ color: '#EF4444', tabId });
+        chrome.action.setBadgeBackgroundColor({ color: '#E5173F', tabId });
       } else if (analysis.verdict === 'REAL_DEAL') {
         chrome.action.setBadgeText({ text: '✓', tabId });
-        chrome.action.setBadgeBackgroundColor({ color: '#10B981', tabId });
+        chrome.action.setBadgeBackgroundColor({ color: '#13A160', tabId });
       } else {
         chrome.action.setBadgeText({ text: '', tabId });
       }
@@ -559,7 +559,7 @@ async function handleProductTracking(productData, sendResponse, sender) {
       const target = (idKey && targets[idKey]) || (urlKey && targets[urlKey]) || null;
       if (target && productData.price <= target) {
         chrome.action.setBadgeText({ text: '🎯', tabId });
-        chrome.action.setBadgeBackgroundColor({ color: '#3B82F6', tabId });
+        chrome.action.setBadgeBackgroundColor({ color: '#7038E8', tabId });
       }
     } catch (e) {}
 

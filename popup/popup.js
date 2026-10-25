@@ -1,949 +1,739 @@
-// Popup logic
+// Popup / full-tab UI: tracked products, settings and data tools.
+// DOM-only construction via FDKit.h (createElement + text nodes) — product
+// data never passes through innerHTML.
 (async function () {
-  // Initialize i18n immediately
+  const kit = window.FDKit;
+  const { h, icon, SITES, SITE_KEYS } = kit;
+
   const i18n = new I18n();
   await i18n.loadTranslations();
-
-  // Get language preference
-  const lang = (await chrome.storage.local.get(['language'])).language || 'bg';
-  if (i18n.getCurrentLanguage() !== lang) {
-    await i18n.setLanguage(lang);
-  }
-
+  const savedLanguage = (await chrome.storage.local.get(['language'])).language || 'bg';
+  if (i18n.getCurrentLanguage() !== savedLanguage) await i18n.setLanguage(savedLanguage);
   const t = (key, params) => i18n.t(key, params);
+  let fmt = kit.format(i18n.getCurrentLanguage());
 
-  // Detect "Open in full tab" mode (popup.html opened as a normal Chrome
-  // tab via the ↗ link). Drops the fixed popup width so the layout flows.
-  const isFullView = new URLSearchParams(window.location.search).get('fullview') === '1';
-  if (isFullView) {
-    document.body.classList.add('fullview');
-  }
-
-  // Single source of truth for the current version. Read once at popup load
-  // from the manifest so every visible mention (About line) updates
-  // automatically the next time manifest.json is bumped.
+  // Single source of truth for the version: read once from the manifest so
+  // bumping manifest.json updates every visible mention.
   const VERSION = chrome.runtime.getManifest().version;
   const CONTACT_EMAIL = 'fakediscountbg@gmail.com';
-
-  // Detect platform for the keyboard-shortcut hint. Chrome's `commands`
-  // entry serves Cmd+Shift+F to Mac and Ctrl+Shift+F to everything else;
-  // the displayed text needs to match what the user actually presses.
+  // Chrome's `commands` entry serves Cmd+Shift+F on Mac, Ctrl+Shift+F elsewhere.
   const isMac = /Mac|iPhone|iPad/i.test(navigator.platform || '');
   const SHORTCUT_KEYS = isMac ? '⌘+Shift+F' : 'Ctrl+Shift+F';
+  const STORAGE_LIMIT = 10 * 1024 * 1024;
+  const SORTS = ['recent', 'price-asc', 'price-desc', 'targets'];
+  const TAGGED_TONES = new Set(['check', 'low', 'volatile', 'stable']);
+  const LANGUAGES = [['bg', 'Български'], ['en', 'English']];
 
-  // ── Filter / sort state ─────────────────────────────────────────────
-  // Multi-select site chips: a Set of enabled site keys. Default = all.
-  // Site filters and sort mode persist across popup reopens (saved to
-  // chrome.storage.local under `popupFilters`). The search query is
-  // intentionally NOT persisted — a stale typed query on reopen would
-  // hide most products and confuse the user.
-  const ALL_SITES = ['emag', 'ozone', 'notino', 'technopolis', 'technomarket', 'zora', 'ardes', 'plesio', 'aboutyou', 'answear', 'decathlon', 'dm', 'fashiondays', 'lilly', 'bricolage', 'obuvki', 'praktiker', 'sopharmacy', 'sportdepot', 'ebag'];
+  // "Open in a tab" mode: the same page opened as a normal Chrome tab.
+  const isFullView = new URLSearchParams(window.location.search).get('fullview') === '1';
+  if (isFullView) document.body.classList.add('fullview');
 
-  // Hosts we'll navigate to from the popup. Mirrors the SUPPORTED_HOSTS
-  // set in background/service-worker.js — kept in sync because the popup
-  // re-validates `product.url` before `chrome.tabs.create` (defense in
-  // depth against a corrupt or pre-validation storage entry).
-  const SUPPORTED_HOSTS = new Set([
-    'emag.bg', 'www.emag.bg',
-    'ozone.bg', 'www.ozone.bg',
-    'notino.bg', 'www.notino.bg',
-    'technopolis.bg', 'www.technopolis.bg',
-    'technomarket.bg', 'www.technomarket.bg',
-    'zora.bg', 'www.zora.bg',
-    'ardes.bg', 'www.ardes.bg',
-    'plesio.bg', 'www.plesio.bg',
-    'aboutyou.bg', 'www.aboutyou.bg',
-    'answear.bg', 'www.answear.bg',
-    'decathlon.bg', 'www.decathlon.bg',
-    'dm-drogeriemarkt.bg', 'www.dm-drogeriemarkt.bg',
-    'fashiondays.bg', 'www.fashiondays.bg',
-    'lillydrogerie.bg', 'www.lillydrogerie.bg',
-    'mr-bricolage.bg', 'www.mr-bricolage.bg',
-    'obuvki.bg', 'www.obuvki.bg',
-    'praktiker.bg', 'www.praktiker.bg',
-    'sopharmacy.bg', 'www.sopharmacy.bg',
-    'sportdepot.bg', 'www.sportdepot.bg',
-    'ebag.bg', 'www.ebag.bg'
-  ]);
+  // Hosts the popup will navigate to. Derived from the shared store list,
+  // which mirrors SUPPORTED_HOSTS in background/service-worker.js. Product
+  // URLs are re-validated before chrome.tabs.create as defense in depth
+  // against a corrupt or pre-validation storage entry.
+  const SUPPORTED_HOSTS = new Set(SITE_KEYS.flatMap(key => [SITES[key].domain, 'www.' + SITES[key].domain]));
   function isSupportedProductUrl(url) {
     if (typeof url !== 'string' || !url) return false;
     try {
       const u = new URL(url);
-      if (u.protocol !== 'https:') return false;
-      return SUPPORTED_HOSTS.has(u.hostname.toLowerCase());
+      return u.protocol === 'https:' && SUPPORTED_HOSTS.has(u.hostname.toLowerCase());
     } catch (_) {
       return false;
     }
   }
-  // Thumbnail URLs may point at store CDNs — only enforce https:// scheme.
+  // Thumbnails may point at store CDNs — only enforce the https:// scheme.
   function isSafeThumbnailUrl(url) {
     if (typeof url !== 'string' || !url) return false;
     try {
-      const u = new URL(url);
-      return u.protocol === 'https:';
+      return new URL(url).protocol === 'https:';
     } catch (_) {
       return false;
     }
   }
-  const activeSites = new Set(ALL_SITES);
-  let searchQuery = '';
-  let sortMode = 'recent';
-  let cachedProducts = []; // full normalized list
-  let cachedTargets = {};  // { url: targetPrice }
 
+  const $ = id => document.getElementById(id);
+  const clear = el => { while (el.firstChild) el.removeChild(el.firstChild); return el; };
+  const send = (action, payload = {}) => new Promise(resolve => {
+    chrome.runtime.sendMessage({ action, ...payload }, response => resolve(response));
+  });
+
+  const state = {
+    loaded: false,
+    products: [],
+    targets: {},
+    settings: {},
+    activeSites: new Set(SITE_KEYS),
+    search: '',
+    sort: 'recent',
+    bytes: 0
+  };
+  const allSitesActive = () => state.activeSites.size === SITE_KEYS.length;
+
+  // ── Toasts + confirm dialog ─────────────────────────────────────────
+  function toast(message, tone = 'info') {
+    const el = h('div', { class: 'toast', 'data-tone': tone },
+      icon(tone === 'error' ? 'alert' : 'check', 15), h('span', null, message));
+    $('toasts').appendChild(el);
+    setTimeout(() => {
+      el.classList.add('is-leaving');
+      setTimeout(() => el.remove(), 250);
+    }, 3200);
+  }
+
+  function confirmDialog({ title, text, confirm }) {
+    const dialog = $('confirm-dialog');
+    clear($('confirm-icon')).appendChild(icon('alert', 20));
+    $('confirm-title').textContent = title;
+    $('confirm-text').textContent = text;
+    $('confirm-ok').textContent = confirm;
+    $('confirm-cancel').textContent = t('data.cancel');
+    if (typeof dialog.showModal !== 'function') return Promise.resolve(window.confirm(text));
+    return new Promise(resolve => {
+      dialog.addEventListener('close', () => resolve(dialog.returnValue === 'confirm'), { once: true });
+      dialog.returnValue = '';
+      dialog.showModal();
+      $('confirm-cancel').focus();
+    });
+  }
+
+  // ── Filter / sort persistence ───────────────────────────────────────
+  // Site chips and sort mode are saved to chrome.storage.local.popupFilters.
+  // The search query is intentionally NOT persisted — a stale typed query on
+  // reopen would hide most products and confuse the user.
   async function loadFilterState() {
     try {
       const { popupFilters } = await chrome.storage.local.get(['popupFilters']);
       if (!popupFilters) return;
-      // Restore site filter chips (must keep at least one site enabled).
-      if (Array.isArray(popupFilters.activeSites) && popupFilters.activeSites.length > 0) {
-        const valid = popupFilters.activeSites.filter(s => ALL_SITES.includes(s));
-        if (valid.length > 0) {
-          activeSites.clear();
-          valid.forEach(s => activeSites.add(s));
-          document.querySelectorAll('#site-filter-chips .chip').forEach(chip => {
-            chip.classList.toggle('active', activeSites.has(chip.dataset.site));
-          });
-        }
-      }
-      // Restore sort mode.
-      const validSorts = ['recent', 'price-asc', 'price-desc', 'targets'];
-      if (validSorts.includes(popupFilters.sortMode)) {
-        sortMode = popupFilters.sortMode;
-        document.getElementById('sort-select').value = sortMode;
-      }
-    } catch (_) { /* missing or malformed — fall back to defaults */ }
+      const valid = Array.isArray(popupFilters.activeSites) ? popupFilters.activeSites.filter(s => SITES[s]) : [];
+      if (valid.length) state.activeSites = new Set(valid);
+      if (SORTS.includes(popupFilters.sortMode)) state.sort = popupFilters.sortMode;
+    } catch (_) { /* missing or malformed — keep defaults */ }
   }
 
   function saveFilterState() {
-    chrome.storage.local.set({
-      popupFilters: {
-        activeSites: Array.from(activeSites),
-        sortMode
-      }
-    });
+    chrome.storage.local.set({ popupFilters: { activeSites: Array.from(state.activeSites), sortMode: state.sort } });
   }
 
-  // ── Tab switching ───────────────────────────────────────────────────
-  function activateTab(tabName) {
-    document.querySelectorAll('.tab-btn').forEach(btn => {
-      const isActive = btn.dataset.tab === tabName;
-      btn.classList.toggle('active', isActive);
-      btn.setAttribute('aria-selected', String(isActive));
-    });
-    document.querySelectorAll('.tab-panel').forEach(panel => {
-      const isActive = panel.dataset.tabPanel === tabName;
-      panel.hidden = !isActive;
-      panel.classList.toggle('active', isActive);
-    });
-  }
-  document.querySelectorAll('.tab-btn').forEach(btn => {
-    btn.addEventListener('click', () => activateTab(btn.dataset.tab));
-  });
-
-  // ── Open in full tab ────────────────────────────────────────────────
-  document.getElementById('open-fullview').addEventListener('click', (e) => {
-    e.preventDefault();
-    chrome.tabs.create({
-      url: chrome.runtime.getURL('popup/popup.html?fullview=1')
-    });
-    window.close();
-  });
-
-  // ── Load settings ───────────────────────────────────────────────────
-  async function loadSettings() {
-    const settings = await chrome.storage.local.get([
-      'language',
-      'enableEmag',
-      'enableOzone',
-      'enableNotino',
-      'enableTechnopolis',
-      'enableTechnomarket',
-      'enableZora',
-      'enableArdes',
-      'enablePlesio',
-      'enableAboutyou',
-      'enableAnswear',
-      'enableDecathlon',
-      'enableDm',
-      'enableFashiondays',
-      'enableLilly',
-      'enableBricolage',
-      'enableObuvki',
-      'enablePraktiker',
-      'enableSopharmacy',
-      'enableSportdepot',
-      'enableEbag',
-      'showWidget'
-    ]);
-
-    document.getElementById('language-select').value = settings.language || 'bg';
-    document.getElementById('enable-emag').checked = settings.enableEmag !== false;
-    document.getElementById('enable-ozone').checked = settings.enableOzone !== false;
-    document.getElementById('enable-notino').checked = settings.enableNotino !== false;
-    document.getElementById('enable-technopolis').checked = settings.enableTechnopolis !== false;
-    document.getElementById('enable-technomarket').checked = settings.enableTechnomarket !== false;
-    document.getElementById('enable-zora').checked = settings.enableZora !== false;
-    document.getElementById('enable-ardes').checked = settings.enableArdes !== false;
-    document.getElementById('enable-plesio').checked = settings.enablePlesio !== false;
-    document.getElementById('enable-aboutyou').checked = settings.enableAboutyou !== false;
-    document.getElementById('enable-answear').checked = settings.enableAnswear !== false;
-    document.getElementById('enable-decathlon').checked = settings.enableDecathlon !== false;
-    document.getElementById('enable-dm').checked = settings.enableDm !== false;
-    document.getElementById('enable-fashiondays').checked = settings.enableFashiondays !== false;
-    document.getElementById('enable-lilly').checked = settings.enableLilly !== false;
-    document.getElementById('enable-bricolage').checked = settings.enableBricolage !== false;
-    document.getElementById('enable-obuvki').checked = settings.enableObuvki !== false;
-    document.getElementById('enable-praktiker').checked = settings.enablePraktiker !== false;
-    document.getElementById('enable-sopharmacy').checked = settings.enableSopharmacy !== false;
-    document.getElementById('enable-sportdepot').checked = settings.enableSportdepot !== false;
-    document.getElementById('enable-ebag').checked = settings.enableEbag !== false;
-    document.getElementById('show-widget').checked = settings.showWidget !== false;
-
-    updateUI();
+  // ── Data loading ────────────────────────────────────────────────────
+  function toViewModel(id, raw) {
+    const stats = kit.historyStats(raw.history);
+    const site = SITES[raw.site] ? raw.site : (kit.siteFromUrl(raw.url) || raw.site || '');
+    let verdict = 'TRACKING';
+    if (stats && typeof detectFakeDiscount === 'function') {
+      try {
+        verdict = detectFakeDiscount({ currentPrice: stats.last.price, originalPrice: stats.last.originalPrice, history: stats.rows }).verdict;
+      } catch (_) { /* keep TRACKING */ }
+    }
+    const title = typeof raw.title === 'string' ? raw.title : '';
+    const ean = typeof raw.ean === 'string' && raw.ean ? raw.ean : '';
+    return {
+      id, site, title, ean, url: raw.url, thumbnail: raw.thumbnail, stats, verdict,
+      tone: kit.verdictMeta(verdict).tone,
+      price: stats ? stats.last.price : null,
+      lastUpdated: typeof raw.lastUpdated === 'string' ? raw.lastUpdated : (stats ? stats.last.date : ''),
+      haystack: `${title} ${ean}`.toLowerCase()
+    };
   }
 
-  // ── Translate UI labels ─────────────────────────────────────────────
-  function updateUI() {
-    // Tabs
-    document.getElementById('tab-products').textContent = t('tabs.products');
-    document.getElementById('tab-settings').textContent = t('tabs.settings');
-    document.getElementById('tab-data').textContent = t('tabs.data');
-
-    // Filter bar
-    document.getElementById('search-input').placeholder = t('search.placeholder');
-    document.getElementById('sort-label').textContent = t('sort.label');
-    const sortSelect = document.getElementById('sort-select');
-    sortSelect.options[0].textContent = t('sort.recent');
-    sortSelect.options[1].textContent = t('sort.priceAsc');
-    sortSelect.options[2].textContent = t('sort.priceDesc');
-    sortSelect.options[3].textContent = t('sort.targetsFirst');
-
-    // Settings tab
-    document.getElementById('language-label').textContent = t('settings.language');
-    document.getElementById('enable-emag-label').textContent = t('settings.enableEmag');
-    document.getElementById('enable-ozone-label').textContent = t('settings.enableOzone');
-    document.getElementById('enable-notino-label').textContent = t('settings.enableNotino');
-    document.getElementById('enable-technopolis-label').textContent = t('settings.enableTechnopolis');
-    document.getElementById('enable-technomarket-label').textContent = t('settings.enableTechnomarket');
-    document.getElementById('enable-zora-label').textContent = t('settings.enableZora');
-    document.getElementById('enable-ardes-label').textContent = t('settings.enableArdes');
-    document.getElementById('enable-plesio-label').textContent = t('settings.enablePlesio');
-    document.getElementById('enable-aboutyou-label').textContent = t('settings.enableAboutyou');
-    document.getElementById('enable-answear-label').textContent = t('settings.enableAnswear');
-    document.getElementById('enable-decathlon-label').textContent = t('settings.enableDecathlon');
-    document.getElementById('enable-dm-label').textContent = t('settings.enableDm');
-    document.getElementById('enable-fashiondays-label').textContent = t('settings.enableFashiondays');
-    document.getElementById('enable-lilly-label').textContent = t('settings.enableLilly');
-    document.getElementById('enable-bricolage-label').textContent = t('settings.enableBricolage');
-    document.getElementById('enable-obuvki-label').textContent = t('settings.enableObuvki');
-    document.getElementById('enable-praktiker-label').textContent = t('settings.enablePraktiker');
-    document.getElementById('enable-sopharmacy-label').textContent = t('settings.enableSopharmacy');
-    document.getElementById('enable-sportdepot-label').textContent = t('settings.enableSportdepot');
-    document.getElementById('enable-ebag-label').textContent = t('settings.enableEbag');
-    document.getElementById('show-widget-label').textContent = t('settings.showWidget');
-    document.getElementById('enable-emag-desc').textContent = t('settings.enableEmagDesc');
-    document.getElementById('enable-ozone-desc').textContent = t('settings.enableOzoneDesc');
-    document.getElementById('enable-notino-desc').textContent = t('settings.enableNotinoDesc');
-    document.getElementById('enable-technopolis-desc').textContent = t('settings.enableTechnopolisDesc');
-    document.getElementById('enable-technomarket-desc').textContent = t('settings.enableTechnomarketDesc');
-    document.getElementById('enable-zora-desc').textContent = t('settings.enableZoraDesc');
-    document.getElementById('enable-ardes-desc').textContent = t('settings.enableArdesDesc');
-    document.getElementById('enable-plesio-desc').textContent = t('settings.enablePlesioDesc');
-    document.getElementById('enable-aboutyou-desc').textContent = t('settings.enableAboutyouDesc');
-    document.getElementById('enable-answear-desc').textContent = t('settings.enableAnswearDesc');
-    document.getElementById('enable-decathlon-desc').textContent = t('settings.enableDecathlonDesc');
-    document.getElementById('enable-dm-desc').textContent = t('settings.enableDmDesc');
-    document.getElementById('enable-fashiondays-desc').textContent = t('settings.enableFashiondaysDesc');
-    document.getElementById('enable-lilly-desc').textContent = t('settings.enableLillyDesc');
-    document.getElementById('enable-bricolage-desc').textContent = t('settings.enableBricolageDesc');
-    document.getElementById('enable-obuvki-desc').textContent = t('settings.enableObuvkiDesc');
-    document.getElementById('enable-praktiker-desc').textContent = t('settings.enablePraktikerDesc');
-    document.getElementById('enable-sopharmacy-desc').textContent = t('settings.enableSopharmacyDesc');
-    document.getElementById('enable-sportdepot-desc').textContent = t('settings.enableSportdepotDesc');
-    document.getElementById('enable-ebag-desc').textContent = t('settings.enableEbagDesc');
-    document.getElementById('show-widget-desc').textContent = t('settings.showWidgetDesc');
-
-    // Data tab
-    document.getElementById('storage-title').textContent = t('storage');
-    document.getElementById('storage-used-label').textContent = t('settings.storageUsed');
-    document.getElementById('tracked-products-label').textContent = t('settings.trackedProducts');
-    document.getElementById('cleanup-old').textContent = t('settings.cleanupOld');
-    document.getElementById('clear-history').textContent = t('settings.clearHistory');
-    document.getElementById('data-title').textContent = t('settings.data') || 'Data';
-    document.getElementById('export-data').textContent = t('settings.exportData');
-    document.getElementById('import-data').textContent = t('settings.importData');
-
-    // Empty-state message in Products tab
-    document.getElementById('no-products-message').textContent = t('settings.noProducts');
-
-    // Open-in-tab tooltip
-    document.getElementById('open-fullview').title = t('openFullView') || 'Open in full tab';
-
-    updateAboutSection();
+  async function loadProducts() {
+    const response = await send('getAllProducts');
+    try {
+      state.targets = (await chrome.storage.local.get(['priceTargets'])).priceTargets || {};
+    } catch (_) {
+      state.targets = {};
+    }
+    if (!response || response.success === false) toast(t('errors.loadFailed'), 'error');
+    const products = response?.products || {};
+    state.products = Object.entries(products)
+      .filter(([, product]) => product && product.isActive)
+      .map(([id, product]) => toViewModel(id, product));
+    state.loaded = true;
+    renderProducts();
+    renderData();
   }
 
-  // Render the About block (version + contact email + keyboard shortcut hint).
-  // Built with createElement instead of innerHTML so the strings can never
-  // be tainted by translation values.
-  function updateAboutSection() {
-    document.getElementById('about-title').textContent = t('about.title');
-
-    document.getElementById('about-version').textContent = `Fake Discount Bulgaria · v${VERSION}`;
-
-    // Contact line: plain-text email styled with user-select:all so a
-    // single click selects the whole address. No mailto link — on systems
-    // without a configured mail client (most casual users) the link just
-    // opens a blank Chrome window, which is worse than no link at all.
-    const contactEl = document.getElementById('about-contact');
-    while (contactEl.firstChild) contactEl.removeChild(contactEl.firstChild);
-    contactEl.appendChild(document.createTextNode(t('about.contact') + ' '));
-    const emailSpan = document.createElement('span');
-    emailSpan.className = 'email-text';
-    emailSpan.textContent = CONTACT_EMAIL;
-    contactEl.appendChild(emailSpan);
-
-    // Shortcut line: "<intro> <kbd>Ctrl+Shift+F</kbd>"
-    const shortcutEl = document.getElementById('about-shortcut');
-    while (shortcutEl.firstChild) shortcutEl.removeChild(shortcutEl.firstChild);
-    shortcutEl.appendChild(document.createTextNode(t('about.shortcut') + ' '));
-    const kbd = document.createElement('kbd');
-    kbd.textContent = SHORTCUT_KEYS;
-    shortcutEl.appendChild(kbd);
-
-    // Customize-shortcut line: link opens chrome://extensions/shortcuts.
-    // chrome:// URLs cannot be opened from a regular <a href>, so use
-    // chrome.tabs.create on click.
-    const customizeEl = document.getElementById('about-shortcut-customize');
-    while (customizeEl.firstChild) customizeEl.removeChild(customizeEl.firstChild);
-    const customizeLink = document.createElement('a');
-    customizeLink.href = '#';
-    customizeLink.textContent = t('about.shortcutCustomize');
-    customizeLink.addEventListener('click', (e) => {
-      e.preventDefault();
-      chrome.tabs.create({ url: 'chrome://extensions/shortcuts' });
-    });
-    customizeEl.appendChild(customizeLink);
+  async function loadStorage() {
+    try {
+      state.bytes = await chrome.storage.local.getBytesInUse(null);
+    } catch (_) {
+      state.bytes = 0;
+    }
+    renderFooter();
+    renderData();
   }
 
-  // ── Site filter chips (multi-select toggle) ─────────────────────────
-  document.querySelectorAll('#site-filter-chips .chip').forEach(chip => {
-    chip.addEventListener('click', () => {
-      const site = chip.dataset.site;
-      if (activeSites.has(site)) {
-        // Don't allow turning off ALL sites — at least one must remain on.
-        if (activeSites.size > 1) {
-          activeSites.delete(site);
-          chip.classList.remove('active');
-        }
-      } else {
-        activeSites.add(site);
-        chip.classList.add('active');
-      }
-      saveFilterState();
-      renderProducts();
+  // Targets are keyed by productId since v3.15.11; older ones by URL.
+  const targetFor = p => {
+    const value = (p.id && state.targets[p.id]) || (p.url && state.targets[p.url]);
+    return typeof value === 'number' && value > 0 ? value : null;
+  };
+
+  // ── Formatting helpers ──────────────────────────────────────────────
+  function storagePercent(fraction) {
+    const pct = fraction * 100;
+    const digits = pct === 0 ? 0 : pct < 0.1 ? 3 : pct < 1 ? 2 : pct < 10 ? 1 : 0;
+    return new Intl.NumberFormat(fmt.locale, { maximumFractionDigits: digits, minimumFractionDigits: digits }).format(pct) + '%';
+  }
+
+  function bytesLabel(bytes) {
+    const mb = bytes >= 1024 * 1024;
+    return new Intl.NumberFormat(fmt.locale, {
+      style: 'unit', unit: mb ? 'megabyte' : 'kilobyte', maximumFractionDigits: mb ? 1 : 0
+    }).format(bytes / (mb ? 1024 * 1024 : 1024));
+  }
+
+  // ── Static labels (re-run on language change) ───────────────────────
+  function renderStatic() {
+    document.documentElement.lang = fmt.lang;
+    document.title = t('brand.name');
+    $('brand-name').textContent = t('brand.name');
+    $('brand-subtitle').textContent = t('brand.subtitle');
+    const full = $('open-fullview');
+    full.hidden = isFullView;
+    full.setAttribute('aria-label', t('openFullView'));
+    full.title = t('openFullView');
+    clear(full).appendChild(icon('expand', 16));
+    for (const tab of ['products', 'settings', 'data']) {
+      $('tab-' + tab).querySelector('.tab-label').textContent = t('tabs.' + tab);
+    }
+    clear($('search-icon')).appendChild(icon('search', 16));
+    const search = $('search-input');
+    search.placeholder = t('products.search');
+    search.setAttribute('aria-label', t('products.search'));
+    const clearBtn = $('search-clear');
+    clearBtn.setAttribute('aria-label', t('products.clearSearch'));
+    clearBtn.title = t('products.clearSearch');
+    clear(clearBtn).appendChild(icon('x', 14));
+    $('sort-label').textContent = t('products.sortLabel');
+    const sortSelect = $('sort-select');
+    const sortKeys = { recent: 'recent', 'price-asc': 'priceAsc', 'price-desc': 'priceDesc', targets: 'targets' };
+    Array.from(sortSelect.options).forEach(option => { option.textContent = t('products.sort.' + sortKeys[option.value]); });
+    sortSelect.value = state.sort;
+  }
+
+  // ── Products ────────────────────────────────────────────────────────
+  function visibleProducts() {
+    const q = state.search;
+    const list = state.products.filter(p => {
+      const siteOk = SITES[p.site] ? state.activeSites.has(p.site) : allSitesActive();
+      return siteOk && (!q || p.haystack.includes(q));
     });
-  });
+    const byRecent = (a, b) => b.lastUpdated.localeCompare(a.lastUpdated) || a.title.localeCompare(b.title);
+    const byPrice = dir => (a, b) => {
+      if (a.price == null || b.price == null) return (a.price == null) - (b.price == null);
+      return dir * (a.price - b.price) || byRecent(a, b);
+    };
+    if (state.sort === 'price-asc') list.sort(byPrice(1));
+    else if (state.sort === 'price-desc') list.sort(byPrice(-1));
+    else if (state.sort === 'targets') list.sort((a, b) => (targetFor(b) != null) - (targetFor(a) != null) || byRecent(a, b));
+    else list.sort(byRecent);
+    return list;
+  }
 
-  // ── Search input (debounced re-render) ──────────────────────────────
-  let searchTimer = null;
-  document.getElementById('search-input').addEventListener('input', (e) => {
-    if (searchTimer) clearTimeout(searchTimer);
-    searchTimer = setTimeout(() => {
-      searchQuery = e.target.value.trim().toLowerCase();
-      renderProducts();
-    }, 150);
-  });
+  function renderChips() {
+    const el = clear($('site-filter-chips'));
+    el.setAttribute('aria-label', t('products.storeFilter'));
+    const counts = new Map();
+    for (const p of state.products) if (SITES[p.site]) counts.set(p.site, (counts.get(p.site) || 0) + 1);
+    const sites = Array.from(counts.keys())
+      .sort((a, b) => counts.get(b) - counts.get(a) || SITES[a].name.localeCompare(SITES[b].name));
+    el.hidden = !state.loaded || (sites.length < 2 && allSitesActive());
+    if (el.hidden) return;
+    const chip = (key, label, count, pressed) => {
+      const btn = h('button', { type: 'button', class: 'chip', 'aria-pressed': String(pressed), 'data-site': key },
+        key !== 'all' && kit.storeMono(key, 'mono--chip'), h('span', null, label), h('span', { class: 'chip-count' }, fmt.number(count)));
+      btn.addEventListener('click', () => toggleSite(key));
+      return btn;
+    };
+    el.appendChild(chip('all', t('products.allStores'), state.products.length, allSitesActive()));
+    for (const site of sites) el.appendChild(chip(site, SITES[site].name, counts.get(site), !allSitesActive() && state.activeSites.has(site)));
+  }
 
-  // ── Sort dropdown ───────────────────────────────────────────────────
-  document.getElementById('sort-select').addEventListener('change', (e) => {
-    sortMode = e.target.value;
+  // "All" → everything. From "All", a store chip narrows to that store;
+  // further chips add/remove stores, and removing the last one returns to All.
+  function toggleSite(site) {
+    if (site === 'all') state.activeSites = new Set(SITE_KEYS);
+    else if (allSitesActive()) state.activeSites = new Set([site]);
+    else if (state.activeSites.has(site)) {
+      state.activeSites.delete(site);
+      if (!state.activeSites.size) state.activeSites = new Set(SITE_KEYS);
+    } else state.activeSites.add(site);
     saveFilterState();
     renderProducts();
-  });
+  }
 
-  // ── Fetch products + targets, then render ───────────────────────────
-  async function loadFollowedProducts() {
-    try {
-      const response = await new Promise((resolve) => {
-        chrome.runtime.sendMessage({ action: 'getAllProducts' }, (response) => {
-          resolve(response);
-        });
+  function sparkline(p) {
+    const rows = p.stats ? p.stats.rows.slice(-60) : [];
+    if (rows.length < 2) return null;
+    const W = 64, H = 22, pad = 2.5;
+    const prices = rows.map(r => r.price);
+    const lo = Math.min(...prices), hi = Math.max(...prices);
+    const t0 = kit.parseDay(rows[0].date).getTime();
+    const span = kit.parseDay(rows[rows.length - 1].date).getTime() - t0 || 1;
+    const x = r => (pad + ((kit.parseDay(r.date).getTime() - t0) / span) * (W - pad * 2)).toFixed(1);
+    const y = v => (hi === lo ? H / 2 : pad + (1 - (v - lo) / (hi - lo)) * (H - pad * 2)).toFixed(1);
+    let d = '';
+    rows.forEach((r, i) => { d += i ? `H${x(r)}V${y(r.price)}` : `M${x(r)},${y(r.price)}`; });
+    const last = rows[rows.length - 1];
+    return kit.s('svg', { class: 'spark', width: W, height: H, viewBox: `0 0 ${W} ${H}`, 'aria-hidden': 'true' },
+      kit.s('path', { d }), kit.s('circle', { cx: x(last), cy: y(last.price), r: 2.4 }));
+  }
+
+  function productCard(p) {
+    const meta = SITES[p.site];
+    const target = targetFor(p);
+    const reached = target != null && p.price != null && p.price <= target;
+    const card = h('article', { class: 'card', 'data-tone': p.tone });
+
+    const media = h('div', { class: 'card-media' });
+    const placeholder = () => h('span', { class: 'card-placeholder' }, icon('box', 20));
+    if (isSafeThumbnailUrl(p.thumbnail)) {
+      const img = h('img', { src: p.thumbnail, alt: '', loading: 'lazy', referrerpolicy: 'no-referrer' });
+      img.addEventListener('error', () => img.replaceWith(placeholder()), { once: true });
+      media.appendChild(img);
+    } else {
+      media.appendChild(placeholder());
+    }
+
+    // Defense in depth: only https links to supported stores are opened.
+    const canOpen = isSupportedProductUrl(p.url);
+    const title = canOpen
+      ? h('button', { type: 'button', class: 'card-title card-open', title: p.title || p.url }, p.title || p.url)
+      : h('span', { class: 'card-title', title: p.title }, p.title);
+    if (canOpen) title.addEventListener('click', () => chrome.tabs.create({ url: p.url }));
+
+    let delta = null;
+    const prev = p.stats && p.stats.prev;
+    if (prev && prev.price !== p.price) {
+      const change = (p.price - prev.price) / prev.price;
+      delta = h('span', { class: 'delta ' + (change < 0 ? 'is-down' : 'is-up'), title: t('products.vsPrevious') },
+        icon(change < 0 ? 'arrowDown' : 'arrowUp', 12), fmt.percent(Math.abs(change)));
+    }
+
+    const meta2 = [];
+    if (target != null) {
+      const text = reached
+        ? `${t('products.targetReached')} · ${fmt.price(target)}`
+        : t('products.target', { price: fmt.price(target) }) + (p.price != null ? ` · ${t('products.targetGap', { amount: fmt.price(p.price - target) })}` : '');
+      meta2.push(h('span', { class: 'target-chip' + (reached ? ' is-reached' : '') }, icon(reached ? 'check' : 'target', 12), text));
+    }
+    if (p.ean) {
+      const ean = h('button', { type: 'button', class: 'ean', title: t('products.copyEan'), 'aria-label': `${t('products.copyEan')} ${p.ean}` }, icon('copy', 12), p.ean);
+      ean.addEventListener('click', async () => {
+        try {
+          await navigator.clipboard.writeText(p.ean);
+          ean.classList.add('is-copied');
+          setTimeout(() => ean.classList.remove('is-copied'), 1200);
+          toast(t('products.eanCopied'));
+        } catch (_) {
+          toast(t('errors.copyFailed'), 'error');
+        }
       });
-
-      try {
-        const result = await chrome.storage.local.get(['priceTargets']);
-        cachedTargets = result.priceTargets || {};
-      } catch (_) {
-        cachedTargets = {};
-      }
-
-      const products = response?.products || {};
-      cachedProducts = Object.entries(products)
-        .filter(([id, product]) => product.isActive)
-        .map(([id, product]) => ({ id, ...product }));
-
-      renderProducts();
-    } catch (error) {
-      console.error('Error loading followed products:', error);
-    }
-  }
-
-  // ── "Last seen" formatter (today / yesterday / N days ago) ──────────
-  function formatLastSeen(lastUpdated) {
-    if (!lastUpdated) return '';
-    const last = new Date(lastUpdated);
-    if (isNaN(last.getTime())) return '';
-    const now = new Date();
-    // Compare at midnight to get whole-day deltas regardless of time of day.
-    const lastMid = new Date(last.getFullYear(), last.getMonth(), last.getDate());
-    const nowMid = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-    const days = Math.round((nowMid - lastMid) / (1000 * 60 * 60 * 24));
-    if (days <= 0) return t('lastSeen.today') || 'today';
-    if (days === 1) return t('lastSeen.yesterday') || 'yesterday';
-    return t('lastSeen.daysAgo', { n: days }) || `${days} days ago`;
-  }
-
-  // ── Apply filter + sort + render ────────────────────────────────────
-  function renderProducts() {
-    const productList = document.getElementById('followed-products-list');
-    const noProductsMsg = document.getElementById('no-products-message');
-
-    while (productList.firstChild) {
-      productList.removeChild(productList.firstChild);
+      meta2.push(ean);
     }
 
-    // Filter
-    let filtered = cachedProducts.filter(product => {
-      const site = product.site || 'emag';
-      if (!activeSites.has(site)) return false;
-      if (searchQuery) {
-        const haystack = `${product.title || ''} ${product.ean || ''}`.toLowerCase();
-        if (!haystack.includes(searchQuery)) return false;
+    const del = h('button', { type: 'button', class: 'card-delete', title: t('products.delete'), 'aria-label': t('products.delete') }, icon('trash', 15));
+    let disarmTimer = null;
+    const disarm = () => {
+      clearTimeout(disarmTimer);
+      del.classList.remove('is-armed');
+      del.setAttribute('aria-label', t('products.delete'));
+      del.querySelector('.card-delete-label')?.remove();
+    };
+    // Two-step delete: first click arms, second click (within 4s) deletes.
+    del.addEventListener('click', () => {
+      if (del.classList.contains('is-armed')) {
+        disarm();
+        deleteProduct(p);
+        return;
       }
-      return true;
+      del.classList.add('is-armed');
+      del.setAttribute('aria-label', t('products.confirmDelete'));
+      del.appendChild(h('span', { class: 'card-delete-label' }, t('products.confirmDelete')));
+      disarmTimer = setTimeout(disarm, 4000);
     });
+    del.addEventListener('blur', disarm);
 
-    // Sort
-    const latestPrice = (p) => p.history && p.history.length > 0
-      ? p.history[p.history.length - 1].price
-      : 0;
+    card.appendChild(media);
+    card.appendChild(h('div', { class: 'card-body' },
+      h('div', { class: 'card-top' },
+        meta && kit.storeMono(p.site),
+        h('span', { class: 'card-store' }, meta ? meta.name : p.site),
+        p.lastUpdated && h('span', { class: 'card-updated', title: t('products.updated', { when: fmt.ago(p.lastUpdated) }) }, fmt.ago(p.lastUpdated)),
+        TAGGED_TONES.has(p.tone) && h('span', { class: 'tag', 'data-tone': p.tone }, t(`verdictShort.${p.verdict}`))
+      ),
+      title,
+      h('div', { class: 'card-price-row' },
+        h('span', { class: 'card-price' + (p.price == null ? ' is-empty' : '') }, p.price == null ? t('products.noPrice') : fmt.price(p.price)),
+        delta,
+        sparkline(p)
+      ),
+      meta2.length ? h('div', { class: 'card-meta' }, meta2) : null
+    ));
+    card.appendChild(del);
+    return card;
+  }
 
-    if (sortMode === 'recent') {
-      filtered.sort((a, b) => new Date(b.lastUpdated) - new Date(a.lastUpdated));
-    } else if (sortMode === 'price-asc') {
-      filtered.sort((a, b) => latestPrice(a) - latestPrice(b));
-    } else if (sortMode === 'price-desc') {
-      filtered.sort((a, b) => latestPrice(b) - latestPrice(a));
-    } else if (sortMode === 'targets') {
-      filtered.sort((a, b) => {
-        // Look up by productId (canonical since v3.15.11), fall back to URL
-        // key for legacy targets the widget hasn't migrated yet.
-        const aT = (a.id && cachedTargets[a.id]) || (a.url && cachedTargets[a.url]) || 0;
-        const bT = (b.id && cachedTargets[b.id]) || (b.url && cachedTargets[b.url]) || 0;
-        const aHasTarget = aT > 0 ? 1 : 0;
-        const bHasTarget = bT > 0 ? 1 : 0;
-        if (aHasTarget !== bHasTarget) return bHasTarget - aHasTarget;
-        return new Date(b.lastUpdated) - new Date(a.lastUpdated);
-      });
+  async function deleteProduct(p) {
+    const response = await send('deleteProduct', { productId: p.id });
+    if (response?.success) {
+      state.products = state.products.filter(x => x.id !== p.id);
+      renderProducts();
+      renderData();
+      loadStorage();
+      toast(t('products.deleted'));
+    } else {
+      toast(t('errors.deleteFailed'), 'error');
     }
+  }
 
-    if (filtered.length === 0) {
-      productList.style.display = 'none';
-      noProductsMsg.style.display = 'block';
-      // Customize empty message if filters are active vs truly empty
-      if (cachedProducts.length > 0 && (searchQuery || activeSites.size !== ALL_SITES.length)) {
-        noProductsMsg.textContent = t('search.noResults') || 'No matches';
-      } else {
-        noProductsMsg.textContent = t('settings.noProducts');
-      }
-      updateFooter();
+  function renderSkeleton(list) {
+    for (let i = 0; i < 4; i++) list.appendChild(h('div', { class: 'card card--skeleton', 'aria-hidden': 'true' }, h('span'), h('span'), h('span')));
+  }
+
+  function renderProducts() {
+    const list = clear($('product-list'));
+    const empty = clear($('products-empty'));
+    const countEl = $('tab-products-count');
+    countEl.textContent = state.loaded && state.products.length ? fmt.number(state.products.length) : '';
+    renderChips();
+    if (!state.loaded) {
+      renderSkeleton(list);
+      empty.hidden = true;
       return;
     }
 
-    productList.style.display = 'block';
-    noProductsMsg.style.display = 'none';
+    const visible = visibleProducts();
+    $('result-count').textContent = kit.tPlural(t, fmt, 'products.count', visible.length);
+    const toolbar = document.querySelector('#panel-products .toolbar');
+    toolbar.hidden = state.products.length === 0;
 
-    const currency = t('currency') || t('lev') || 'EUR';
-
-    filtered.forEach(product => {
-      const latest = latestPrice(product);
-      // Only show a trend when we actually have a prior price to compare
-      // against. With a single recorded price the old "→ stable" was
-      // misleading — there was no comparison being made.
-      const hasComparison = product.history && product.history.length > 1;
-      const previous = hasComparison
-        ? product.history[product.history.length - 2].price
-        : latest;
-
-      const trend = !hasComparison ? null :
-        (latest > previous ? 'up' :
-         latest < previous ? 'down' : 'stable');
-      const trendSymbol = trend === 'up' ? '↑' : trend === 'down' ? '↓' : trend === 'stable' ? '→' : '';
-      const trendLabel  = trend === 'up' ? t('trend.higher') :
-                          trend === 'down' ? t('trend.lower') :
-                          trend === 'stable' ? t('trend.same') : '';
-
-      const site = product.site || 'emag';
-      const SITE_LABELS = { emag: 'EMAG', ozone: 'OZONE', notino: 'NOTINO', technopolis: 'TECHNOPOLIS', technomarket: 'TECHNOMARKET', zora: 'ZORA', ardes: 'ARDES', plesio: 'PLESIO', aboutyou: 'ABOUT YOU', answear: 'ANSWEAR', decathlon: 'DECATHLON', dm: 'DM', fashiondays: 'FASHION DAYS', lilly: 'LILLY', bricolage: 'MR.BRICOLAGE', obuvki: 'OBUVKI', praktiker: 'PRAKTIKER', sopharmacy: 'SOPHARMACY', sportdepot: 'SPORT DEPOT', ebag: 'EBAG' };
-      const siteLabel = SITE_LABELS[site] || 'EMAG';
-
-      const productItem = document.createElement('div');
-      productItem.className = 'product-item';
-
-      // Thumbnail
-      if (product.thumbnail && isSafeThumbnailUrl(product.thumbnail)) {
-        const img = document.createElement('img');
-        img.src = product.thumbnail;
-        img.alt = product.title;
-        img.className = 'product-thumbnail';
-        img.onerror = function () { this.style.display = 'none'; };
-        productItem.appendChild(img);
+    if (!visible.length) {
+      list.hidden = true;
+      empty.hidden = false;
+      if (state.products.length) {
+        empty.appendChild(h('span', { class: 'empty-art' }, icon('search', 22)));
+        empty.appendChild(h('h2', null, t('products.noResultsTitle')));
+        empty.appendChild(h('p', null, t('products.noResultsBody')));
+        const reset = h('button', { type: 'button', class: 'btn btn-secondary' }, t('products.resetFilters'));
+        reset.addEventListener('click', () => {
+          state.search = '';
+          $('search-input').value = '';
+          $('search-clear').hidden = true;
+          state.activeSites = new Set(SITE_KEYS);
+          saveFilterState();
+          renderProducts();
+        });
+        empty.appendChild(reset);
       } else {
-        const placeholder = document.createElement('div');
-        placeholder.className = 'product-thumbnail';
-        productItem.appendChild(placeholder);
+        empty.appendChild(h('span', { class: 'empty-art' }, icon('chart', 22)));
+        empty.appendChild(h('h2', null, t('products.emptyTitle')));
+        empty.appendChild(h('p', null, t('products.emptyBody')));
+        empty.appendChild(h('h3', null, t('products.supportedStores')));
+        empty.appendChild(h('ul', { class: 'store-cloud' },
+          SITE_KEYS.map(key => h('li', null, kit.storeMono(key), SITES[key].name))));
       }
+      return;
+    }
+    list.hidden = false;
+    empty.hidden = true;
+    for (const p of visible) list.appendChild(productCard(p));
+  }
 
-      // Product info
-      const productInfo = document.createElement('div');
-      productInfo.className = 'product-info';
+  // ── Settings ────────────────────────────────────────────────────────
+  function group(title, aside, ...content) {
+    return h('section', { class: 'group' },
+      h('div', { class: 'group-head' }, h('h2', null, title), aside),
+      ...content);
+  }
 
-      const titleDiv = document.createElement('div');
-      titleDiv.className = 'product-title';
-      titleDiv.title = product.title;
-      titleDiv.textContent = product.title;
-      productInfo.appendChild(titleDiv);
+  function switchControl(id, checked, label, onChange) {
+    const input = h('input', { type: 'checkbox', role: 'switch', id, class: 'switch-input', 'aria-label': label });
+    input.checked = checked;
+    input.addEventListener('change', () => onChange(input.checked));
+    return h('span', { class: 'switch' }, input, h('span', { class: 'switch-track', 'aria-hidden': 'true' }));
+  }
 
-      if (typeof product.ean === 'string' && product.ean) {
-        const eanDiv = document.createElement('div');
-        eanDiv.className = 'product-ean';
-        eanDiv.textContent = `EAN: ${product.ean}`;
-        eanDiv.title = t('ean.copyHint') || 'Click to copy';
-        // Copy on click + brief green-flash confirmation. stopPropagation
-        // prevents the click from bubbling to the card-level "open URL" handler.
-        eanDiv.addEventListener('click', async (e) => {
-          e.stopPropagation();
-          try {
-            await navigator.clipboard.writeText(product.ean);
-            const original = eanDiv.textContent;
-            eanDiv.textContent = `EAN: ${product.ean} ✓ ${t('ean.copied') || 'Copied!'}`;
-            eanDiv.classList.add('copied');
-            setTimeout(() => {
-              eanDiv.textContent = original;
-              eanDiv.classList.remove('copied');
-            }, 1200);
-          } catch (err) {
-            console.error('Copy failed:', err);
-          }
-        });
-        productInfo.appendChild(eanDiv);
-      }
+  async function loadSettings() {
+    const keys = ['showWidget', ...SITE_KEYS.map(key => SITES[key].enableKey)];
+    try {
+      state.settings = await chrome.storage.local.get(keys);
+    } catch (_) {
+      state.settings = {};
+    }
+    renderSettings();
+  }
 
-      // "Last seen X days ago" — small italic muted line right after EAN
-      // (or right after title when no EAN). Helps spot stale data.
-      const lastSeenStr = formatLastSeen(product.lastUpdated);
-      if (lastSeenStr) {
-        const lastSeenDiv = document.createElement('div');
-        lastSeenDiv.className = 'product-lastseen';
-        lastSeenDiv.textContent = lastSeenStr;
-        productInfo.appendChild(lastSeenDiv);
-      }
+  function renderSettings() {
+    const panel = clear($('panel-settings'));
+    const current = fmt.lang;
 
-      // Meta row: price + trend + site badge (price-range row removed
-      // per the compact-card decision; the target indicator below still
-      // appears on its own row when a target is set for this product).
-      const metaDiv = document.createElement('div');
-      metaDiv.className = 'product-meta';
+    const segmented = h('div', { class: 'segmented', role: 'group', 'aria-label': t('settings.language') },
+      LANGUAGES.map(([code, name]) => {
+        const btn = h('button', { type: 'button', lang: code, 'data-lang': code, 'aria-pressed': String(code === current) }, name);
+        btn.addEventListener('click', () => changeLanguage(code));
+        return btn;
+      }));
+    panel.appendChild(group(t('settings.language'), null, segmented));
 
-      const priceSpan = document.createElement('span');
-      priceSpan.className = 'product-price';
-      priceSpan.textContent = `${latest.toFixed(2)} ${currency}`;
-      metaDiv.appendChild(priceSpan);
+    panel.appendChild(group(t('settings.pageSection'), null,
+      h('label', { class: 'row' },
+        h('span', { class: 'row-icon' }, icon('eye', 16)),
+        h('span', { class: 'row-text' },
+          h('span', { class: 'row-title' }, t('settings.showWidget')),
+          h('span', { class: 'row-desc' }, t('settings.showWidgetDesc'))),
+        switchControl('show-widget', state.settings.showWidget !== false, t('settings.showWidget'),
+          checked => chrome.storage.local.set({ showWidget: checked })))));
 
-      // Trend block: arrow + small text label. Only rendered when there's
-      // a previous price to compare against (skipped on first-visit cards).
-      if (trend) {
-        const trendSpan = document.createElement('span');
-        trendSpan.className = `product-trend ${trend}`;
-        trendSpan.textContent = trendSymbol;
-        metaDiv.appendChild(trendSpan);
-
-        const trendLabelSpan = document.createElement('span');
-        trendLabelSpan.className = 'product-trend-label';
-        trendLabelSpan.textContent = trendLabel;
-        metaDiv.appendChild(trendLabelSpan);
-      }
-
-      const badgeSpan = document.createElement('span');
-      badgeSpan.className = `site-badge ${site}`;
-      badgeSpan.textContent = siteLabel;
-      metaDiv.appendChild(badgeSpan);
-
-      // Price-target row (only when set). Independent of the price-range
-      // row that was removed — this still shows on its own line.
-      // Look up by productId (canonical since v3.15.11), fall back to
-      // URL key for legacy targets the widget hasn't migrated yet.
-      const targetValue = (product.id && cachedTargets[product.id])
-        || (product.url && cachedTargets[product.url])
-        || null;
-      if (typeof targetValue === 'number' && targetValue > 0) {
-        const targetDiv = document.createElement('div');
-        targetDiv.className = 'product-price-target';
-        const reached = latest <= targetValue;
-        if (reached) targetDiv.classList.add('reached');
-        const labelText = t('priceTarget.label') || 'Target:';
-        const reachedSuffix = reached ? ` ✓ ${t('priceTarget.reached') || 'Target reached!'}` : '';
-        targetDiv.textContent = `🎯 ${labelText} ${targetValue.toFixed(2)} ${currency}${reachedSuffix}`;
-        productInfo.appendChild(targetDiv);
-      }
-
-      productInfo.appendChild(metaDiv);
-      productItem.appendChild(productInfo);
-
-      // Click anywhere on the card (except delete) to open the URL.
-      // Defense-in-depth: re-validate the URL is from a supported store
-      // before navigating. The service worker's import sanitizer already
-      // rejects off-domain URLs, but storage written by a previous
-      // version, a future bypass, or a corrupted entry could still
-      // surface a bad URL here. Refuse to open anything that isn't an
-      // https:// link to one of the 20 supported stores.
-      if (product.url && isSupportedProductUrl(product.url)) {
-        productItem.addEventListener('click', (e) => {
-          if (e.target.closest('.delete-product-btn')) return;
-          chrome.tabs.create({ url: product.url });
-        });
-      }
-
-      // Delete button
-      const deleteBtn = document.createElement('button');
-      deleteBtn.className = 'delete-product-btn';
-      deleteBtn.setAttribute('data-product-id', product.id);
-      deleteBtn.title = t('settings.deleteProduct');
-      deleteBtn.textContent = '🗑️';
-      productItem.appendChild(deleteBtn);
-
-      deleteBtn.addEventListener('click', async (e) => {
-        e.stopPropagation();
-        const productId = deleteBtn.getAttribute('data-product-id');
-        if (confirm(t('settings.deleteProduct') + '?')) {
-          try {
-            const response = await new Promise((resolve) => {
-              chrome.runtime.sendMessage({ action: 'deleteProduct', productId: productId }, (response) => {
-                resolve(response);
-              });
-            });
-
-            if (response?.success) {
-              // Remove from cache so re-render reflects immediately
-              cachedProducts = cachedProducts.filter(p => p.id !== productId);
-              renderProducts();
-              updateStorageInfo();
-            } else {
-              alert(t('errors.deleteFailed') || 'Error deleting');
-            }
-          } catch (error) {
-            console.error('Error deleting product:', error);
-            alert(t('errors.deleteFailed') || 'Error deleting');
-          }
-        }
-      });
-
-      productList.appendChild(productItem);
+    const enabledCount = () => SITE_KEYS.filter(key => state.settings[SITES[key].enableKey] !== false).length;
+    const aside = h('span', { class: 'group-aside' }, t('settings.storesEnabled', { n: enabledCount(), total: SITE_KEYS.length }));
+    const rows = SITE_KEYS.map(key => {
+      const { enableKey, name, domain } = SITES[key];
+      return h('label', { class: 'row row--store' },
+        kit.storeMono(key),
+        h('span', { class: 'row-text' }, h('span', { class: 'row-title' }, name), h('span', { class: 'row-desc' }, domain)),
+        switchControl('enable-' + key, state.settings[enableKey] !== false, t('settings.storeToggle', { store: name }), checked => {
+          state.settings[enableKey] = checked;
+          chrome.storage.local.set({ [enableKey]: checked });
+          aside.textContent = t('settings.storesEnabled', { n: enabledCount(), total: SITE_KEYS.length });
+        }));
     });
+    panel.appendChild(group(t('settings.storesSection'), aside,
+      h('p', { class: 'group-desc' }, t('settings.storesDesc')),
+      h('div', { class: 'store-list' }, rows)));
 
-    updateFooter();
+    // Shortcut link: chrome:// URLs can't be opened from a regular <a href>.
+    const change = h('button', { type: 'button', class: 'link-btn' }, t('settings.shortcutChange'));
+    change.addEventListener('click', () => chrome.tabs.create({ url: 'chrome://extensions/shortcuts' }));
+    // Contact: plain text with user-select:all — no mailto link (it opens an
+    // empty tab on systems without a configured mail client).
+    panel.appendChild(group(t('settings.aboutSection'), null,
+      h('dl', { class: 'about' },
+        h('div', null, h('dt', null, t('brand.name')), h('dd', null, t('settings.version', { version: VERSION }))),
+        h('div', null, h('dt', null, t('settings.shortcut')), h('dd', null, h('kbd', null, SHORTCUT_KEYS), change)),
+        h('div', null, h('dt', null, t('settings.contact')), h('dd', null, h('span', { class: 'email-text', title: t('settings.contactHint') }, CONTACT_EMAIL))))));
   }
 
-  // ── Storage info (Data tab + footer summary) ────────────────────────
-  async function updateStorageInfo() {
-    try {
-      const bytesUsed = await chrome.storage.local.getBytesInUse(null);
-      const storageLimit = 10 * 1024 * 1024; // 10MB
-      const rawPct = (bytesUsed / storageLimit) * 100;
-
-      let displayPct;
-      if (rawPct === 0) {
-        displayPct = '0%';
-      } else if (rawPct < 0.1) {
-        displayPct = `${rawPct.toFixed(3)}%`;
-      } else if (rawPct < 1) {
-        displayPct = `${rawPct.toFixed(2)}%`;
-      } else if (rawPct < 10) {
-        displayPct = `${rawPct.toFixed(1)}%`;
-      } else {
-        displayPct = `${Math.round(rawPct)}%`;
-      }
-
-      document.getElementById('storage-percentage').textContent = displayPct;
-      const fillElement = document.getElementById('storage-fill');
-      fillElement.style.width = `${Math.min(rawPct, 100)}%`;
-      fillElement.className = 'storage-fill';
-
-      if (rawPct < 50) {
-        fillElement.classList.add('green');
-      } else if (rawPct < 80) {
-        fillElement.classList.add('yellow');
-      } else {
-        fillElement.classList.add('red');
-      }
-
-      const response = await new Promise((resolve) => {
-        chrome.runtime.sendMessage({ action: 'getProductCount' }, (response) => {
-          resolve(response);
-        });
-      });
-      const productCount = response?.count || 0;
-      document.getElementById('tracked-products-count').textContent = productCount;
-
-      // Persistent footer summary on every tab.
-      document.getElementById('footer-summary').textContent =
-        t('footer.summary', { count: productCount, percentage: displayPct }) ||
-        `${productCount} · ${displayPct}`;
-    } catch (error) {
-      console.error('Error updating storage info:', error);
-    }
-  }
-
-  function updateFooter() {
-    // Light update of the count when products change without full reload.
-    const el = document.getElementById('footer-summary');
-    if (!el) return;
-    // If we've never populated it, do the heavier path.
-    if (el.textContent === '…') updateStorageInfo();
-  }
-
-  // ── Settings event listeners ────────────────────────────────────────
-  document.getElementById('language-select').addEventListener('change', async (e) => {
-    const lang = e.target.value;
-    await chrome.storage.local.set({ language: lang });
+  async function changeLanguage(lang) {
+    if (lang === fmt.lang) return;
     await i18n.setLanguage(lang);
-    updateUI();
-    renderProducts(); // currency/labels in product cards may shift
-  });
+    fmt = kit.format(lang);
+    renderAll();
+  }
 
-  document.getElementById('enable-emag').addEventListener('change', (e) => {
-    chrome.storage.local.set({ enableEmag: e.target.checked });
-  });
+  // ── Data ────────────────────────────────────────────────────────────
+  function renderData() {
+    const panel = clear($('panel-data'));
+    const fraction = Math.min(1, state.bytes / STORAGE_LIMIT);
+    const fill = h('span', { class: 'meter-fill' });
+    fill.style.width = (fraction > 0 ? Math.max(fraction * 100, 1.5) : 0) + '%';
+    const level = fraction < 0.5 ? 'ok' : fraction < 0.8 ? 'warn' : 'bad';
+    panel.appendChild(group(t('data.storageSection'), null,
+      h('div', { class: 'storage' },
+        h('div', { class: 'storage-figure' },
+          h('strong', { id: 'storage-percentage' }, storagePercent(fraction)),
+          h('span', null, t('data.storageUsed', { used: bytesLabel(state.bytes), total: bytesLabel(STORAGE_LIMIT) }))),
+        h('div', { class: 'meter', 'data-level': level, role: 'meter', 'aria-label': t('data.storageSection'), 'aria-valuemin': 0, 'aria-valuemax': 100, 'aria-valuenow': (fraction * 100).toFixed(2) }, fill),
+        h('div', { class: 'storage-row' },
+          h('span', null, t('data.trackedProducts')),
+          h('strong', { id: 'tracked-products-count' }, fmt.number(state.products.length))))));
 
-  document.getElementById('enable-ozone').addEventListener('change', (e) => {
-    chrome.storage.local.set({ enableOzone: e.target.checked });
-  });
+    const exportBtn = h('button', { type: 'button', class: 'btn btn-secondary', id: 'export-data' }, icon('download', 15), t('data.export'));
+    exportBtn.addEventListener('click', exportData);
+    const importBtn = h('button', { type: 'button', class: 'btn btn-secondary', id: 'import-data' }, icon('upload', 15), t('data.import'));
+    importBtn.addEventListener('click', startImport);
+    panel.appendChild(group(t('data.backupSection'), null,
+      h('p', { class: 'group-desc' }, t('data.backupDesc')),
+      h('div', { class: 'btn-row' }, exportBtn, importBtn),
+      !isFullView && h('p', { class: 'group-note' }, icon('info', 13), t('data.importInTab'))));
 
-  document.getElementById('enable-notino').addEventListener('change', (e) => {
-    chrome.storage.local.set({ enableNotino: e.target.checked });
-  });
+    // Mirrors the service worker's 90-day rule so the count matches what
+    // "Remove" will actually delete.
+    const cutoff = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000);
+    const stale = state.products.filter(p => new Date(p.lastUpdated) < cutoff).length;
+    const cleanupBtn = h('button', { type: 'button', class: 'btn btn-secondary', id: 'cleanup-old', disabled: state.loaded && !stale }, t('data.cleanupRun'));
+    cleanupBtn.addEventListener('click', cleanupOld);
+    const clearBtn = h('button', { type: 'button', class: 'btn btn-danger-quiet', id: 'clear-history', disabled: state.loaded && !state.products.length }, t('data.clearAllRun'));
+    clearBtn.addEventListener('click', clearAll);
+    panel.appendChild(group(t('data.cleanupSection'), null,
+      h('div', { class: 'row row--action' },
+        h('span', { class: 'row-icon' }, icon('broom', 16)),
+        h('span', { class: 'row-text' },
+          h('span', { class: 'row-title' }, t('data.cleanupOld')),
+          h('span', { class: 'row-desc' }, kit.tPlural(t, fmt, 'data.cleanupOld', stale))),
+        cleanupBtn),
+      h('div', { class: 'row row--action row--danger' },
+        h('span', { class: 'row-icon' }, icon('trash', 16)),
+        h('span', { class: 'row-text' },
+          h('span', { class: 'row-title' }, t('data.clearAll')),
+          h('span', { class: 'row-desc' }, t('data.clearAllDesc'))),
+        clearBtn)));
+  }
 
-  document.getElementById('enable-technopolis').addEventListener('change', (e) => {
-    chrome.storage.local.set({ enableTechnopolis: e.target.checked });
-  });
+  function localDateKey() {
+    const d = new Date();
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  }
 
-  document.getElementById('enable-technomarket').addEventListener('change', (e) => {
-    chrome.storage.local.set({ enableTechnomarket: e.target.checked });
-  });
+  async function exportData() {
+    const response = await send('exportData');
+    if (!response?.success || !response.data) return toast(t('errors.exportFailed'), 'error');
+    const blob = new Blob([JSON.stringify(response.data, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = h('a', { href: url, download: `fake-discount-data-${localDateKey()}.json` });
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+    toast(t('data.exported'), 'success');
+  }
 
-  document.getElementById('enable-zora').addEventListener('change', (e) => {
-    chrome.storage.local.set({ enableZora: e.target.checked });
-  });
-
-  document.getElementById('enable-ardes').addEventListener('change', (e) => {
-    chrome.storage.local.set({ enableArdes: e.target.checked });
-  });
-
-  document.getElementById('enable-plesio').addEventListener('change', (e) => {
-    chrome.storage.local.set({ enablePlesio: e.target.checked });
-  });
-
-  document.getElementById('enable-aboutyou').addEventListener('change', (e) => {
-    chrome.storage.local.set({ enableAboutyou: e.target.checked });
-  });
-
-  document.getElementById('enable-answear').addEventListener('change', (e) => {
-    chrome.storage.local.set({ enableAnswear: e.target.checked });
-  });
-
-  document.getElementById('enable-decathlon').addEventListener('change', (e) => {
-    chrome.storage.local.set({ enableDecathlon: e.target.checked });
-  });
-
-  document.getElementById('enable-dm').addEventListener('change', (e) => {
-    chrome.storage.local.set({ enableDm: e.target.checked });
-  });
-
-  document.getElementById('enable-fashiondays').addEventListener('change', (e) => {
-    chrome.storage.local.set({ enableFashiondays: e.target.checked });
-  });
-
-  document.getElementById('enable-lilly').addEventListener('change', (e) => {
-    chrome.storage.local.set({ enableLilly: e.target.checked });
-  });
-
-  document.getElementById('enable-bricolage').addEventListener('change', (e) => {
-    chrome.storage.local.set({ enableBricolage: e.target.checked });
-  });
-
-  document.getElementById('enable-obuvki').addEventListener('change', (e) => {
-    chrome.storage.local.set({ enableObuvki: e.target.checked });
-  });
-
-  document.getElementById('enable-praktiker').addEventListener('change', (e) => {
-    chrome.storage.local.set({ enablePraktiker: e.target.checked });
-  });
-
-  document.getElementById('enable-sopharmacy').addEventListener('change', (e) => {
-    chrome.storage.local.set({ enableSopharmacy: e.target.checked });
-  });
-
-  document.getElementById('enable-sportdepot').addEventListener('change', (e) => {
-    chrome.storage.local.set({ enableSportdepot: e.target.checked });
-  });
-
-  document.getElementById('enable-ebag').addEventListener('change', (e) => {
-    chrome.storage.local.set({ enableEbag: e.target.checked });
-  });
-
-  document.getElementById('show-widget').addEventListener('change', (e) => {
-    chrome.storage.local.set({ showWidget: e.target.checked });
-  });
-
-  // Cleanup old products
-  document.getElementById('cleanup-old').addEventListener('click', async () => {
-    try {
-      const response = await new Promise((resolve) => {
-        chrome.runtime.sendMessage({ action: 'cleanupOldProducts' }, (response) => {
-          resolve(response);
-        });
-      });
-
-      if (response?.success) {
-        const cleaned = response.cleaned || 0;
-        alert(t('settings.cleanupComplete', { count: cleaned }) || `Cleaned ${cleaned} old products`);
-        updateStorageInfo();
-        loadFollowedProducts();
-      } else {
-        alert(t('errors.cleanupFailed') || 'Error cleaning up');
-      }
-    } catch (error) {
-      console.error('Error cleaning up:', error);
-      alert(t('errors.cleanupFailed') || 'Error cleaning up');
+  // A file picker opened from the toolbar popup can close the popup (and
+  // with it the change handler) on some platforms, so import runs in a tab.
+  function startImport() {
+    if (!isFullView) {
+      chrome.tabs.create({ url: chrome.runtime.getURL('popup/popup.html?fullview=1#data') });
+      window.close();
+      return;
     }
-  });
+    $('import-file').click();
+  }
 
-  // Clear all history
-  document.getElementById('clear-history').addEventListener('click', async () => {
-    if (confirm(t('settings.clearHistoryConfirm'))) {
-      try {
-        const response = await new Promise((resolve) => {
-          chrome.runtime.sendMessage({ action: 'clearAllProducts' }, (response) => {
-            resolve(response);
-          });
-        });
-
-        if (response?.success) {
-          alert(t('settings.historyCleared') || 'History cleared');
-          updateStorageInfo();
-          loadFollowedProducts();
-        } else {
-          alert(t('errors.clearFailed') || 'Error clearing history');
-        }
-      } catch (error) {
-        console.error('Error clearing history:', error);
-        alert(t('errors.clearFailed') || 'Error clearing history');
-      }
-    }
-  });
-
-  // Export data
-  document.getElementById('export-data').addEventListener('click', async () => {
-    try {
-      const response = await new Promise((resolve) => {
-        chrome.runtime.sendMessage({ action: 'exportData' }, (response) => {
-          resolve(response);
-        });
-      });
-
-      if (response?.success && response.data) {
-        const dataStr = JSON.stringify(response.data, null, 2);
-        const blob = new Blob([dataStr], { type: 'application/json' });
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = `fake-discount-data-${new Date().toISOString().split('T')[0]}.json`;
-        a.click();
-        URL.revokeObjectURL(url);
-      } else {
-        alert(t('errors.exportFailed') || 'Export error');
-      }
-    } catch (error) {
-      console.error('Error exporting data:', error);
-      alert(t('errors.exportFailed') || 'Export error');
-    }
-  });
-
-  document.getElementById('import-data').addEventListener('click', () => {
-    document.getElementById('import-file').click();
-  });
-
-  // Import data
-  document.getElementById('import-file').addEventListener('change', async (e) => {
+  $('import-file').addEventListener('change', async (e) => {
     const file = e.target.files[0];
+    e.target.value = '';
     if (!file) return;
-
     try {
       if (file.size > 10 * 1024 * 1024) throw new Error('importTooLarge');
-      const text = await file.text();
-      const data = JSON.parse(text);
-
-      if (data.priceHistory) {
-        const response = await new Promise((resolve) => {
-          chrome.runtime.sendMessage({ action: 'importData', data: data }, (response) => {
-            resolve(response);
-          });
-        });
-
-        if (response?.success) {
-          const imported = response.imported || 0;
-          const skipped = response.skipped || 0;
-          const summary = skipped > 0
-            ? `${t('settings.dataImported')}\n${t('data.importSummary', { imported, skipped })}`
-            : `${t('settings.dataImported')} (${imported})`;
-          alert(summary);
-          updateStorageInfo();
-          loadFollowedProducts();
-        } else {
-          alert(t('errors.importFailed') || 'Import error');
-        }
-      } else {
-        alert(t('errors.invalidFile') || 'Invalid file');
-      }
+      const data = JSON.parse(await file.text());
+      if (!data || !data.priceHistory) return toast(t('errors.invalidFile'), 'error');
+      const response = await send('importData', { data });
+      if (!response?.success) return toast(t('errors.importFailed'), 'error');
+      const imported = response.imported || 0;
+      const skipped = response.skipped || 0;
+      toast(skipped > 0
+        ? t('data.importSummary', { imported: fmt.number(imported), skipped: fmt.number(skipped) })
+        : kit.tPlural(t, fmt, 'data.imported', imported), 'success');
+      loadProducts();
+      loadStorage();
     } catch (error) {
       console.error('Error importing data:', error);
-      alert(t('errors.importFailed') || 'Import error');
+      toast(t('errors.importFailed'), 'error');
     }
-
-    e.target.value = '';
   });
 
-  // ── Initialize ──────────────────────────────────────────────────────
-  loadSettings();
-  updateStorageInfo();
-  // Restore persisted filter/sort state BEFORE the first product render
-  // so the chips and dropdown reflect the saved selection on open.
-  loadFilterState().then(loadFollowedProducts);
+  async function cleanupOld() {
+    const response = await send('cleanupOldProducts');
+    if (!response?.success) return toast(t('errors.cleanupFailed'), 'error');
+    const cleaned = response.cleaned || 0;
+    toast(cleaned ? kit.tPlural(t, fmt, 'data.cleanupDone', cleaned) : t('data.cleanupNone'), 'success');
+    loadProducts();
+    loadStorage();
+  }
 
-  // Refresh when storage changes (e.g. user opened a product page in another tab)
+  async function clearAll() {
+    const ok = await confirmDialog({ title: t('data.clearConfirmTitle'), text: t('data.clearConfirmBody'), confirm: t('data.clearConfirm') });
+    if (!ok) return;
+    const response = await send('clearAllProducts');
+    if (!response?.success) return toast(t('errors.clearFailed'), 'error');
+    toast(t('data.cleared'), 'success');
+    loadProducts();
+    loadStorage();
+  }
+
+  // ── Footer ──────────────────────────────────────────────────────────
+  function renderFooter() {
+    $('footer-summary').textContent = t('footer.summary', {
+      count: kit.tPlural(t, fmt, 'products.count', state.products.length),
+      percentage: storagePercent(Math.min(1, state.bytes / STORAGE_LIMIT))
+    });
+    $('footer-version').textContent = `v${VERSION}`;
+  }
+
+  // ── Tabs ────────────────────────────────────────────────────────────
+  const TABS = ['products', 'settings', 'data'];
+  function activateTab(name, focus) {
+    for (const tab of TABS) {
+      const btn = $('tab-' + tab);
+      const active = tab === name;
+      btn.setAttribute('aria-selected', String(active));
+      btn.tabIndex = active ? 0 : -1;
+      $('panel-' + tab).hidden = !active;
+      if (active && focus) btn.focus();
+    }
+    document.querySelector('.panels').scrollTop = 0;
+  }
+  for (const tab of TABS) $('tab-' + tab).addEventListener('click', () => activateTab(tab));
+  $('tabs').addEventListener('keydown', (e) => {
+    const step = { ArrowRight: 1, ArrowLeft: -1 }[e.key];
+    if (!step) return;
+    const current = TABS.findIndex(tab => $('tab-' + tab).getAttribute('aria-selected') === 'true');
+    activateTab(TABS[(current + step + TABS.length) % TABS.length], true);
+  });
+
+  // ── Toolbar events ──────────────────────────────────────────────────
+  $('open-fullview').addEventListener('click', () => {
+    chrome.tabs.create({ url: chrome.runtime.getURL('popup/popup.html?fullview=1') });
+    window.close();
+  });
+
+  let searchTimer = null;
+  $('search-input').addEventListener('input', (e) => {
+    $('search-clear').hidden = !e.target.value;
+    clearTimeout(searchTimer);
+    searchTimer = setTimeout(() => {
+      state.search = e.target.value.trim().toLowerCase();
+      renderProducts();
+    }, 120);
+  });
+  $('search-clear').addEventListener('click', () => {
+    const input = $('search-input');
+    input.value = '';
+    $('search-clear').hidden = true;
+    state.search = '';
+    renderProducts();
+    input.focus();
+  });
+  $('sort-select').addEventListener('change', (e) => {
+    state.sort = e.target.value;
+    saveFilterState();
+    renderProducts();
+  });
+  // "/" jumps to search from anywhere on the Products tab.
+  document.addEventListener('keydown', (e) => {
+    if (e.key !== '/' || e.target.closest('input, textarea, select') || $('panel-products').hidden) return;
+    e.preventDefault();
+    $('search-input').focus();
+  });
+
+  function renderAll() {
+    renderStatic();
+    renderProducts();
+    renderSettings();
+    renderData();
+    renderFooter();
+  }
+
+  // ── Initialize ──────────────────────────────────────────────────────
+  // Restore persisted filter/sort state BEFORE the first product render so
+  // the chips and dropdown reflect the saved selection on open.
+  await loadFilterState();
+  renderAll();
+  if (isFullView && window.location.hash === '#data') activateTab('data');
+  loadSettings();
+  loadStorage();
+  await loadProducts();
+  renderFooter();
+
+  // Refresh when storage changes (e.g. a product page open in another tab).
   let refreshTimer = null;
   chrome.storage.onChanged.addListener((changes, area) => {
     if (area !== 'local') return;
-    const relevant = Object.keys(changes).some(k =>
-      k.startsWith('p_') || k === 'product_index' || k === 'priceTargets'
-    );
+    const relevant = Object.keys(changes).some(k => k.startsWith('p_') || k === 'product_index' || k === 'priceTargets');
     if (!relevant) return;
-
-    if (refreshTimer) clearTimeout(refreshTimer);
+    clearTimeout(refreshTimer);
     refreshTimer = setTimeout(() => {
-      updateStorageInfo();
-      loadFollowedProducts();
-    }, 1000);
+      loadStorage();
+      loadProducts();
+    }, 800);
   });
 })();

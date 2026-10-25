@@ -284,7 +284,19 @@
 
     let inserted = false;
 
-    // 1. PREFERRED on Ozone: insert right BEFORE the promotional / upsell
+    // 0. PREFERRED: directly under the three product columns (the `.clear`
+    //    that closes `.product-view-main`). Insider injects ad banners right
+    //    after it, so this keeps the panel next to the product instead of
+    //    below the ads. The spot is inside #product_addtocart_form, hence
+    //    data-allow-in-form (see ContentScriptBase.loadWidgetScripts).
+    const columnsEnd = document.querySelector('.product-view-main > .clear');
+    if (columnsEnd) {
+      columnsEnd.parentNode.insertBefore(widgetContainer, columnsEnd.nextSibling);
+      widgetContainer.dataset.allowInForm = 'true';
+      inserted = true;
+    }
+
+    // 1. Otherwise insert right BEFORE the promotional / upsell
     //    banner so the widget sits just under the product info, not at the
     //    bottom of the page. The Insider personalization banner
     //    (#ins-container-product-1) is the highest of the promo blocks; if it's
@@ -296,6 +308,7 @@
       '.crosssell'
     ];
     for (const selector of promoCandidates) {
+      if (inserted) break;
       const promo = document.querySelector(selector);
       if (promo && promo.parentNode) {
         promo.parentNode.insertBefore(widgetContainer, promo);
@@ -345,7 +358,6 @@
     }
 
     // Load widget using shared utilities
-    ContentScriptBase.loadWidgetCSS();
     await ContentScriptBase.loadWidgetScripts(widgetContainer, product, analysis);
   }
 

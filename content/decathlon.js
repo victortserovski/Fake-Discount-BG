@@ -129,8 +129,15 @@
     widgetContainer.style.padding = '0 15px';
 
     let inserted = false;
-    // Anchor: before product reviews (full-width section below the hero).
-    const reviews = document.querySelector('#product-reviews, .product-reviews, [data-testid="product-reviews"]');
+    // Anchor: directly after the hero (gallery + buy column), above the
+    // "Предимства на дизайна" / product-information / reviews sections.
+    const hero = document.querySelector('.js-product-info, .product-info');
+    if (hero && hero.parentNode) {
+      hero.parentNode.insertBefore(widgetContainer, hero.nextSibling);
+      inserted = true;
+    }
+    // Fallback: before product reviews (full-width section below the hero).
+    const reviews = !inserted && document.querySelector('#product-reviews, .product-reviews, [data-testid="product-reviews"]');
     if (reviews && reviews.parentNode) {
       reviews.parentNode.insertBefore(widgetContainer, reviews);
       inserted = true;
@@ -139,7 +146,6 @@
       const main = document.querySelector('main') || document.body;
       main.appendChild(widgetContainer);
     }
-    ContentScriptBase.loadWidgetCSS();
     await ContentScriptBase.loadWidgetScripts(widgetContainer, product, analysis);
   }
 

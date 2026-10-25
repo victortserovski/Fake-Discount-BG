@@ -84,7 +84,6 @@ class I18n {
           throw new Error('Response is not JSON');
         }
         this.translations = await response.json();
-        console.log('[i18n] Translations loaded successfully');
       } catch (e) {
         console.error('[i18n] Error loading translations:', e);
         this.translations = {};

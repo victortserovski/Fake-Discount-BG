@@ -169,13 +169,20 @@
 
     let inserted = false;
 
-    // Preferred anchor: full-width, BEFORE the next major section
-    // (`section.product_sections` / `section.product-sections` — the
-    // "Общ преглед" / specs / similar-products block) which is the
-    // sibling of `section.product_details`. Inserting here puts the
-    // widget below the entire product-detail row at full page width
-    // instead of cramped inside the right-rail buy column.
-    const sectionsAnchor = document.querySelector(
+    // Preferred anchor: the end of the left (gallery) column of the
+    // three-column product row (`.product-info`: gallery | buy box |
+    // "Купи с" accessories). The gallery column ends ~800px before the
+    // other two, so the panel fills that gap directly under the images,
+    // next to the buy box, instead of landing below the whole row.
+    const galleryColumn = document.querySelector('section.product_details .product-info');
+    if (galleryColumn) {
+      galleryColumn.appendChild(widgetContainer);
+      inserted = true;
+    }
+
+    // Next: full-width, BEFORE the next major section
+    // (`section.product_sections` — "Общ преглед" / specs).
+    const sectionsAnchor = !inserted && document.querySelector(
       'section.product_sections, section.product-sections'
     );
     if (sectionsAnchor && sectionsAnchor.parentNode) {
@@ -199,7 +206,6 @@
       main.appendChild(widgetContainer);
     }
 
-    ContentScriptBase.loadWidgetCSS();
     await ContentScriptBase.loadWidgetScripts(widgetContainer, product, analysis);
   }
 

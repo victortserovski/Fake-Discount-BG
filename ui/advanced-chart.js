@@ -1,478 +1,279 @@
-// Advanced Area Chart with Gradient
-// Make available globally
+// Price-history chart (SVG).
+// Step-after line — a recorded price holds until the next observation — with
+// optional reference lines for the average, the user's target and the store's
+// claimed was-price, a crosshair tooltip, keyboard navigation and responsive
+// re-rendering. Colours come from CSS classes (fdc-*) owned by the page that
+// hosts the chart.
+// No url(#id) references anywhere: pages with a <base href> (Zora.bg) make
+// Chrome resolve fragment references against the base URL, so gradients /
+// clip-paths fail and SVG falls back to solid black fills.
 if (typeof window !== 'undefined') {
   window.AdvancedChart = class AdvancedChart {
     constructor(container, options = {}) {
-      try {
-        if (!container) {
-          throw new Error('AdvancedChart: Container is required');
-        }
-        
-        this.container = container;
-        this.width = options.width || container.clientWidth || 800;
-        this.height = options.height || 300;
-        this.data = options.data || [];
-        this.options = options;
-        // Left margin scales with the actual longest Y-axis label so prices
-        // with 5+ digits (or longer currency strings) don't get clipped.
-        this.margin = {
-          top: 20,
-          right: 30,
-          bottom: 40,
-          left: this._computeLeftMargin()
-        };
-        
-        this.svg = null;
-        this.render();
-      } catch (error) {
-        console.error('AdvancedChart constructor error:', error);
-        console.error('AdvancedChart stack:', error.stack);
-        // Try to create minimal SVG to show error state
-        try {
-          if (container && container.parentNode) {
-            while (container.firstChild) {
-              container.removeChild(container.firstChild);
-            }
-            const errorSvg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
-            errorSvg.setAttribute('width', this.width || 800);
-            errorSvg.setAttribute('height', this.height || 300);
-            errorSvg.style.display = 'block';
-            container.appendChild(errorSvg);
+      if (!container) throw new Error('AdvancedChart: container is required');
+      this.container = container;
+      this.options = options;
+      this.data = options.data || [];
+      this.height = options.height || 220;
+      this.width = Math.round(options.width || container.clientWidth || 640);
+      this.fmt = options.format || window.FDKit.format('bg');
+      this.t = typeof options.t === 'function' ? options.t : (k => k);
+      this._index = -1;
+      this.render();
+      if (options.responsive && typeof ResizeObserver === 'function') {
+        this._observer = new ResizeObserver(() => {
+          const width = Math.round(this.container.clientWidth);
+          if (width > 0 && Math.abs(width - this.width) > 2) {
+            this.width = width;
+            this.render();
           }
-        } catch (e) {
-          console.error('AdvancedChart: Failed to create error SVG:', e);
-        }
-        throw error; // Re-throw to allow caller to handle
+        });
+        this._observer.observe(container);
       }
     }
 
-    // Compute the left margin needed to fit the longest Y-axis label.
-    // Uses the canvas 2D measureText API for accurate sizing across fonts.
-    _computeLeftMargin() {
-      const MIN_MARGIN = 60;
-      const PADDING = 16; // gap between label end and Y-axis line
-      const FONT = '11px sans-serif';
+    update(options) {
+      Object.assign(this.options, options);
+      if (options.data) this.data = options.data;
+      if (options.height) this.height = options.height;
+      this.render();
+    }
 
-      const tFunc = this.options.t;
-      const currency = (typeof tFunc === 'function')
-        ? (tFunc('currency') || tFunc('lev') || 'EUR')
-        : 'EUR';
+    destroy() {
+      if (this._observer) this._observer.disconnect();
+      this._observer = null;
+    }
 
-      const validPrices = (this.data || [])
-        .map(d => d && d.price)
-        .filter(p => typeof p === 'number' && isFinite(p));
-      if (validPrices.length === 0) return MIN_MARGIN;
-
-      const maxPrice = Math.max(...validPrices);
-      const sample = `${maxPrice.toFixed(2)} ${currency}`;
-
+    // Widest y-axis label decides the left margin.
+    _measure(text) {
       try {
-        const canvas = document.createElement('canvas');
-        const ctx = canvas.getContext('2d');
-        ctx.font = FONT;
-        const w = ctx.measureText(sample).width;
-        return Math.max(MIN_MARGIN, Math.ceil(w) + PADDING);
-      } catch (e) {
-        // Fallback: estimate ~7px per char at 11px sans-serif
-        return Math.max(MIN_MARGIN, sample.length * 7 + PADDING);
+        if (!this._textCtx) {
+          this._textCtx = document.createElement('canvas').getContext('2d');
+          this._textCtx.font = '500 11px system-ui, -apple-system, "Segoe UI", Roboto, sans-serif';
+        }
+        return this._textCtx.measureText(text).width;
+      } catch (_) {
+        return text.length * 6.4;
       }
+    }
+
+    _niceStep(range, count) {
+      const raw = range / Math.max(1, count);
+      const mag = Math.pow(10, Math.floor(Math.log10(raw)));
+      const norm = raw / mag;
+      return (norm <= 1 ? 1 : norm <= 2 ? 2 : norm <= 2.5 ? 2.5 : norm <= 5 ? 5 : 10) * mag;
     }
 
     render() {
-      try {
-        // Clear container safely (XML/XHTML compatible)
-        while (this.container.firstChild) {
-          this.container.removeChild(this.container.firstChild);
-        }
-        
-        // Create SVG - always create it, even with empty data
-        this.svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
-        this.svg.setAttribute('width', this.width);
-        this.svg.setAttribute('height', this.height);
-        this.svg.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
-        this.svg.style.display = 'block';
-        
-        // Append SVG to container
-        this.container.appendChild(this.svg);
-        
-        // Verify SVG was appended
-        if (!this.container.contains(this.svg)) {
-          console.error('AdvancedChart: Failed to append SVG to container');
-          throw new Error('Failed to append SVG to container');
-        }
+      const S = window.FDKit.s;
+      const c = this.container;
+      while (c.firstChild) c.removeChild(c.firstChild);
 
-        if (this.data.length === 0) {
-          return;
-        }
+      const W = Math.max(200, this.width), H = this.height;
+      const svg = S('svg', { class: 'fdc', width: W, height: H, viewBox: `0 0 ${W} ${H}`, role: 'img' });
+      if (this.options.ariaLabel) svg.setAttribute('aria-label', this.options.ariaLabel);
+      c.appendChild(svg);
+      this.svg = svg;
 
-        const chartWidth = this.width - this.margin.left - this.margin.right;
-        const chartHeight = this.height - this.margin.top - this.margin.bottom;
+      const parse = window.FDKit.parseDay;
+      const valid = this.data
+        .filter(d => d && Number.isFinite(d.price) && d.price > 0 && parse(d.date))
+        .map(d => ({ ...d, time: parse(d.date).getTime() }))
+        .sort((a, b) => a.time - b.time);
+      this._validData = valid;
+      if (!valid.length) return;
 
-        // Create chart group
-        const chartGroup = document.createElementNS('http://www.w3.org/2000/svg', 'g');
-        chartGroup.setAttribute('transform', `translate(${this.margin.left},${this.margin.top})`);
-        this.svg.appendChild(chartGroup);
+      // ── Y domain: data range, widened to include nearby reference lines ──
+      const prices = valid.map(d => d.price);
+      let low = Math.min(...prices), high = Math.max(...prices);
+      const dataLow = low, dataHigh = high;
+      const refs = [];
+      const addRef = (kind, value, label) => {
+        if (!Number.isFinite(value) || value <= 0) return;
+        const near = value >= dataLow * 0.5 && value <= dataHigh * 2;
+        if (near) { low = Math.min(low, value); high = Math.max(high, value); }
+        refs.push({ kind, value, label });
+      };
+      addRef('avg', this.options.average, null);
+      addRef('target', this.options.target, this.options.targetLabel);
+      addRef('claimed', this.options.claimed, this.options.claimedLabel);
 
-        // Filter valid data points
-        const validData = this.data.filter(d => d && Number.isFinite(d.price) && d.price > 0 && !isNaN(new Date(d.date).getTime()))
-          .sort((a, b) => new Date(a.date) - new Date(b.date));
-        if (validData.length === 0) {
-          // Still create empty chart structure for consistency
-          console.warn('AdvancedChart: No valid data points, creating empty chart');
-          return;
-        }
-        
-        // Note: Even with just 1 data point, we can still show something (single point, axes, grid)
-        // Minimum 2 points needed for line/area, but we can show a single point
+      // Padded data-fit domain; gridlines sit on round values inside it.
+      const span = high - low;
+      const pad = span > 0 ? span * 0.12 : Math.max(high * 0.02, 0.5);
+      const minPrice = Math.max(0, low - pad);
+      const maxPrice = high + pad;
+      const priceRange = maxPrice - minPrice || 1;
+      const step = this._niceStep(priceRange, 5);
+      const ticks = [];
+      for (let v = Math.ceil(minPrice / step) * step; v <= maxPrice; v += step) ticks.push(Math.round(v * 100) / 100);
+      const tickLabel = step >= 1 ? this.fmt.priceRound : this.fmt.price;
 
-        const prices = validData.map(d => d.price);
-        const low = Math.min(...prices);
-        const high = Math.max(...prices);
-        const padding = low === high ? Math.max(low * 0.01, 0.01) : 0;
-        const minPrice = Math.max(0, low - padding);
-        const maxPrice = high + padding;
-        const priceRange = maxPrice - minPrice || 1;
+      const margin = {
+        top: 12,
+        right: 10,
+        bottom: 26,
+        left: Math.ceil(Math.max(...ticks.map(v => this._measure(tickLabel(v))))) + 14
+      };
+      const plotW = W - margin.left - margin.right;
+      const plotH = H - margin.top - margin.bottom;
 
-        // Scale functions
-        const dataLength = validData.length;
-        const dates = validData.map(point => new Date(point.date).getTime());
-        const dateSpan = dates[dataLength - 1] - dates[0];
-        const xScale = (index) => dateSpan > 0 ? ((dates[index] - dates[0]) / dateSpan) * chartWidth : 0;
-        const yScale = (price) => chartHeight - ((price - minPrice) / priceRange) * chartHeight;
+      const t0 = valid[0].time, t1 = valid[valid.length - 1].time;
+      const timeSpan = t1 - t0;
+      const xTime = time => timeSpan > 0 ? ((time - t0) / timeSpan) * plotW : plotW;
+      const xScale = index => xTime(valid[index].time);
+      const yScale = price => plotH - ((price - minPrice) / priceRange) * plotH;
 
-        this._validData = validData;
-        this._minPrice = minPrice;
-        this._maxPrice = maxPrice;
-        this._priceRange = priceRange;
-        this._chartWidth = chartWidth;
-        this._chartHeight = chartHeight;
-        this._xScale = xScale;
-        this._yScale = yScale;
+      Object.assign(this, { _minPrice: minPrice, _maxPrice: maxPrice, _priceRange: priceRange, _chartWidth: plotW, _chartHeight: plotH, _xScale: xScale, _yScale: yScale, _margin: margin });
 
-        // Draw grid and axes
-        this.drawGrid(chartGroup, chartWidth, chartHeight, minPrice, maxPrice, priceRange);
-        this.drawAxes(chartGroup, chartWidth, chartHeight, minPrice, maxPrice);
+      const g = S('g', { transform: `translate(${margin.left},${margin.top})` });
+      svg.appendChild(g);
 
-        // Draw area (gradient fill)
-        this.drawArea(chartGroup, xScale, yScale, chartWidth, chartHeight);
-
-        // Draw average line (dotted)
-        if (this.options.averagePrice) {
-          this.drawAverageLine(chartGroup, chartWidth, chartHeight, minPrice, maxPrice, priceRange);
-        }
-
-        // Draw target price line (if user set a target for this product)
-        if (typeof this.options.targetPrice === 'number' && isFinite(this.options.targetPrice) && this.options.targetPrice > 0) {
-          this.drawTargetLine(chartGroup, chartWidth, chartHeight, minPrice, maxPrice, priceRange);
-        }
-
-        // Draw line
-        this.drawLine(chartGroup, xScale, yScale);
-
-        // Draw points
-        this.drawPoints(chartGroup, xScale, yScale);
-      } catch (error) {
-        console.error('AdvancedChart render error:', error);
-        console.error('AdvancedChart render stack:', error.stack);
-        // SVG should already be created and appended, so at least there's something
-        if (!this.svg || !this.container.contains(this.svg)) {
-          // If SVG wasn't created, try to create minimal error SVG
-          try {
-            while (this.container.firstChild) {
-              this.container.removeChild(this.container.firstChild);
-            }
-            this.svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
-            this.svg.setAttribute('width', this.width);
-            this.svg.setAttribute('height', this.height);
-            this.svg.style.display = 'block';
-            this.container.appendChild(this.svg);
-          } catch (e) {
-            console.error('AdvancedChart: Failed to create error SVG:', e);
-          }
-        }
-        throw error; // Re-throw to allow caller to handle
+      // Grid + y labels
+      const grid = S('g', { class: 'fdc-grid' });
+      for (const v of ticks) {
+        const y = Math.round(yScale(v)) + 0.5;
+        if (y < plotH - 3) grid.appendChild(S('line', { x1: 0, x2: plotW, y1: y, y2: y, class: 'fdc-gridline' }));
+        grid.appendChild(S('text', { x: -10, y: y + 4, 'text-anchor': 'end', class: 'fdc-axis' }, tickLabel(v)));
       }
-    }
+      grid.appendChild(S('line', { x1: 0, x2: plotW, y1: plotH + 0.5, y2: plotH + 0.5, class: 'fdc-gridline fdc-baseline' }));
+      g.appendChild(grid);
 
-    drawGrid(group, width, height, minPrice, maxPrice, priceRange) {
-      const steps = 5;
-      for (let i = 1; i < steps; i++) {
-        const y = (i / steps) * height;
-        const line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
-        line.setAttribute('x1', 0);
-        line.setAttribute('y1', y);
-        line.setAttribute('x2', width);
-        line.setAttribute('y2', y);
-        line.setAttribute('stroke', '#e8e8e8');
-        line.setAttribute('stroke-width', '1');
-        group.appendChild(line);
-      }
-    }
-
-    drawAxes(group, width, height, minPrice, maxPrice) {
-      // Y-axis
-      const yAxis = document.createElementNS('http://www.w3.org/2000/svg', 'line');
-      yAxis.setAttribute('x1', 0);
-      yAxis.setAttribute('y1', 0);
-      yAxis.setAttribute('x2', 0);
-      yAxis.setAttribute('y2', height);
-      yAxis.setAttribute('stroke', '#999');
-      yAxis.setAttribute('stroke-width', '1');
-      group.appendChild(yAxis);
-
-      // X-axis
-      const xAxis = document.createElementNS('http://www.w3.org/2000/svg', 'line');
-      xAxis.setAttribute('x1', 0);
-      xAxis.setAttribute('y1', height);
-      xAxis.setAttribute('x2', width);
-      xAxis.setAttribute('y2', height);
-      xAxis.setAttribute('stroke', '#999');
-      xAxis.setAttribute('stroke-width', '1');
-      group.appendChild(xAxis);
-
-      // Y-axis labels
-      const steps = 5;
-      const tFunc = this.options.t;
-      const currency = (tFunc && typeof tFunc === 'function') ? tFunc('currency') || tFunc('lev') : 'EUR';
-      
-      for (let i = 0; i <= steps; i++) {
-        const price = minPrice + (maxPrice - minPrice) * (i / steps);
-        const y = height - (i / steps) * height;
-        
-        const label = document.createElementNS('http://www.w3.org/2000/svg', 'text');
-        label.setAttribute('x', -10);
-        label.setAttribute('y', y + 4);
-        label.setAttribute('text-anchor', 'end');
-        label.setAttribute('font-size', '11');
-        label.setAttribute('font-family', 'sans-serif');
-        label.setAttribute('fill', '#666');
-        label.textContent = price.toFixed(2) + ' ' + currency;
-        group.appendChild(label);
+      // X labels: evenly spaced in time, de-duplicated.
+      const longSpan = timeSpan > 300 * 86400000;
+      const xCount = timeSpan > 0 ? Math.max(2, Math.min(6, Math.floor(plotW / 92))) : 1;
+      const seen = new Set();
+      for (let i = 0; i < xCount; i++) {
+        const time = xCount === 1 ? t1 : t0 + (timeSpan * i) / (xCount - 1);
+        const d = new Date(time);
+        const label = longSpan ? this.fmt.monthYear(d) : this.fmt.day(d);
+        if (seen.has(label)) continue;
+        seen.add(label);
+        const anchor = xCount === 1 ? 'end' : i === 0 ? 'start' : i === xCount - 1 ? 'end' : 'middle';
+        g.appendChild(S('text', { x: xTime(time), y: plotH + 18, 'text-anchor': anchor, class: 'fdc-axis' }, label));
       }
 
-      // X-axis labels (dates). Format: D/M/YY (e.g. "30/4/26") — keeps the
-      // existing day/month style but adds a 2-digit year so labels stay
-      // disambiguated when history spans multiple years.
-      const data = this._validData || this.data || [];
-      const dateSteps = Math.min(5, data.length);
-      for (let i = 0; i < dateSteps; i++) {
-        const index = dateSteps === 1
-          ? 0
-          : Math.floor((i / (dateSteps - 1)) * (data.length - 1));
-        if (index >= data.length || !data[index] || !data[index].date) continue;
-        const x = this._xScale(index);
-        const date = new Date(data[index].date);
-
-        const label = document.createElementNS('http://www.w3.org/2000/svg', 'text');
-        label.setAttribute('x', x);
-        label.setAttribute('y', height + 20);
-        label.setAttribute('text-anchor', 'middle');
-        label.setAttribute('font-size', '10');
-        label.setAttribute('font-family', 'sans-serif');
-        label.setAttribute('fill', '#666');
-        const yy = String(date.getFullYear() % 100).padStart(2, '0');
-        label.textContent = `${date.getDate()}/${date.getMonth() + 1}/${yy}`;
-        group.appendChild(label);
-      }
-    }
-
-    drawArea(group, xScale, yScale, width, height) {
-      const data = this._validData || this.data || [];
-      if (data.length < 2) return;
-
-      // Build area path
-      let areaPath = '';
-      data.forEach((point, index) => {
-        if (!point || typeof point.price !== 'number' || isNaN(point.price)) return;
-        const x = xScale(index);
-        const y = yScale(point.price);
-        if (index === 0) {
-          areaPath += `M ${x} ${height} L ${x} ${y}`;
-        } else {
-          areaPath += ` L ${x} ${y}`;
-        }
-      });
-
-      // Close area path
-      if (data.length > 0) {
-        const lastX = xScale(data.length - 1);
-        areaPath += ` L ${lastX} ${height} Z`;
+      // Reference lines (behind the price line)
+      const labels = [];
+      for (const ref of refs) {
+        const raw = yScale(ref.value);
+        const y = Math.max(0, Math.min(plotH, raw));
+        const off = raw < 0 ? '↑' : raw > plotH ? '↓' : '';
+        g.appendChild(S('line', { x1: 0, x2: plotW, y1: y, y2: y, class: `fdc-ref fdc-ref--${ref.kind}` }));
+        if (ref.label) labels.push({ ref, y, text: `${ref.label} ${this.fmt.price(ref.value)}${off ? ' ' + off : ''}` });
       }
 
-      const area = document.createElementNS('http://www.w3.org/2000/svg', 'path');
-      area.setAttribute('d', areaPath);
-      // Solid fill + opacity, NOT a `url(#gradientId)` reference. Some
-      // host pages (Zora.bg is the confirmed case) carry a `<base href>`
-      // which causes Chrome to resolve SVG fragment-id references
-      // against the base URL instead of the current document — the
-      // gradient lookup fails and SVG falls back to black, producing
-      // a solid black area under the line. Flat fill + opacity is
-      // visually almost identical and immune to that bug.
-      const lineColor = this.options.lineColor || '#3498db';
-      area.setAttribute('fill', lineColor);
-      area.setAttribute('fill-opacity', '0.15');
-      group.appendChild(area);
-    }
-
-    drawLine(group, xScale, yScale) {
-      const data = this._validData || this.data || [];
-      if (data.length < 2) return;
-
-      let pathData = '';
-      data.forEach((point, index) => {
-        if (!point || typeof point.price !== 'number' || isNaN(point.price)) return;
-        const x = xScale(index);
-        const y = yScale(point.price);
-        if (index === 0) {
-          pathData += `M ${x} ${y}`;
-        } else {
-          pathData += ` L ${x} ${y}`;
-        }
-      });
-
-      const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
-      path.setAttribute('d', pathData);
-      path.setAttribute('fill', 'none');
-      path.setAttribute('stroke', this.options.lineColor || '#3498db');
-      path.setAttribute('stroke-width', '3');
-      path.setAttribute('stroke-linecap', 'round');
-      path.setAttribute('stroke-linejoin', 'round');
-      group.appendChild(path);
-    }
-
-    drawTargetLine(group, width, height, minPrice, maxPrice, priceRange) {
-      const targetPrice = this.options.targetPrice;
-      const tFunc = this.options.t;
-      const currency = (typeof tFunc === 'function') ? (tFunc('currency') || tFunc('lev') || 'EUR') : 'EUR';
-      const labelPrefix = (typeof tFunc === 'function') ? (tFunc('priceTarget.label') || 'Target:') : 'Target:';
-
-      // Y position. If target is outside the visible range, clamp to the edge
-      // so users still see the line, with an arrow indicating which way it goes.
-      const rawY = height - ((targetPrice - minPrice) / priceRange) * height;
-      const targetY = Math.max(0, Math.min(height, rawY));
-      const arrow = rawY < 0 ? ' ↑' : (rawY > height ? ' ↓' : '');
-
-      const line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
-      line.setAttribute('x1', 0);
-      line.setAttribute('y1', targetY);
-      line.setAttribute('x2', width);
-      line.setAttribute('y2', targetY);
-      line.setAttribute('stroke', '#8B5CF6'); // purple, distinct from blue avg + price line
-      line.setAttribute('stroke-width', '2');
-      line.setAttribute('stroke-dasharray', '4,3');
-      line.setAttribute('opacity', '0.85');
-      group.appendChild(line);
-
-      // Label sits on the LEFT so it doesn't collide with the average label on the right.
-      const label = document.createElementNS('http://www.w3.org/2000/svg', 'text');
-      label.setAttribute('x', 5);
-      // Nudge label below the line if it's at the very top so it stays visible.
-      label.setAttribute('y', targetY < 14 ? targetY + 12 : targetY - 5);
-      label.setAttribute('text-anchor', 'start');
-      label.setAttribute('font-size', '11');
-      label.setAttribute('font-family', 'sans-serif');
-      label.setAttribute('font-weight', '600');
-      label.setAttribute('fill', '#8B5CF6');
-      label.textContent = `${labelPrefix} ${targetPrice.toFixed(2)} ${currency}${arrow}`;
-      group.appendChild(label);
-    }
-
-    drawAverageLine(group, width, height, minPrice, maxPrice, priceRange) {
-      const avgY = height - ((this.options.averagePrice - minPrice) / priceRange) * height;
-      
-      const line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
-      line.setAttribute('x1', 0);
-      line.setAttribute('y1', avgY);
-      line.setAttribute('x2', width);
-      line.setAttribute('y2', avgY);
-      line.setAttribute('stroke', '#3498db');
-      line.setAttribute('stroke-width', '2');
-      line.setAttribute('stroke-dasharray', '6,4');
-      line.setAttribute('opacity', '0.7');
-      group.appendChild(line);
-      
-      // Label
-      const tFunc = this.options.t;
-      const avgLabel = (tFunc && typeof tFunc === 'function') 
-        ? tFunc('stats.averagePrice') || tFunc('averagePrice') 
-        : 'Average';
-      const label = document.createElementNS('http://www.w3.org/2000/svg', 'text');
-      label.setAttribute('x', width - 5);
-      label.setAttribute('y', avgY - 5);
-      label.setAttribute('text-anchor', 'end');
-      label.setAttribute('font-size', '10');
-      label.setAttribute('fill', '#3498db');
-      label.setAttribute('font-weight', '600');
-      label.textContent = avgLabel;
-      group.appendChild(label);
-    }
-
-    drawPoints(group, xScale, yScale) {
-      const data = this._validData || this.data || [];
-      const tFunc = this.options.t;
-      const currency = (tFunc && typeof tFunc === 'function') ? tFunc('currency') || tFunc('lev') : 'EUR';
-      
-      data.forEach((point, index) => {
-        if (!point || typeof point.price !== 'number' || isNaN(point.price)) return;
-        const x = xScale(index);
-        const y = yScale(point.price);
-        
-        const circle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
-        circle.setAttribute('cx', x);
-        circle.setAttribute('cy', y);
-        circle.setAttribute('r', '5');
-        circle.setAttribute('fill', this.options.lineColor || '#3498db');
-        circle.setAttribute('stroke', '#fff');
-        circle.setAttribute('stroke-width', '2');
-        circle.style.cursor = 'pointer';
-        
-        // Add tooltip
-        circle.addEventListener('mouseenter', (e) => {
-          const tooltip = document.createElement('div');
-          tooltip.className = 'chart-tooltip';
-          tooltip.style.position = 'absolute';
-          tooltip.style.background = '#333';
-          tooltip.style.color = '#fff';
-          tooltip.style.padding = '8px 12px';
-          tooltip.style.borderRadius = '6px';
-          tooltip.style.fontSize = '12px';
-          tooltip.style.pointerEvents = 'none';
-          tooltip.style.zIndex = '10000';
-          tooltip.style.boxShadow = '0 4px 12px rgba(0,0,0,0.3)';
-          
-          const date = new Date(point.date);
-          // Format date using the user's chosen locale (passed from the widget).
-          const locale = this.options.locale || 'bg-BG';
-          const dateStr = date.toLocaleDateString(locale, {
-            year: 'numeric',
-            month: 'long',
-            day: 'numeric'
-          });
-          tooltip.textContent = `${dateStr}: ${point.price.toFixed(2)} ${currency}`;
-          document.body.appendChild(tooltip);
-          
-          const rect = circle.getBoundingClientRect();
-          tooltip.style.left = (rect.left + window.scrollX - tooltip.offsetWidth / 2 + 5) + 'px';
-          tooltip.style.top = (rect.top + window.scrollY - 35) + 'px';
-          
-          circle._tooltip = tooltip;
+      // Price area + step line
+      let line = '', area = '';
+      if (valid.length === 1) {
+        const y = yScale(valid[0].price);
+        g.appendChild(S('line', { x1: 0, x2: plotW, y1: y, y2: y, class: 'fdc-line fdc-line--single' }));
+      } else {
+        valid.forEach((p, i) => {
+          const x = xScale(i), y = yScale(p.price);
+          if (i === 0) { line = `M${x},${y}`; area = `M${x},${plotH}V${y}`; }
+          else { line += `H${x}V${y}`; area += `H${x}V${y}`; }
         });
-        
-        circle.addEventListener('mouseleave', () => {
-          if (circle._tooltip) {
-            circle._tooltip.remove();
-            circle._tooltip = null;
-          }
-        });
-        
-        group.appendChild(circle);
-      });
-    }
+        area += `V${plotH}Z`;
+        g.appendChild(S('path', { d: area, class: 'fdc-area' }));
+        g.appendChild(S('path', { d: line, class: 'fdc-line' }));
+      }
 
-    updateData(newData) {
-      this.data = newData;
-      this.render();
+      // Reference labels: left-aligned pills (today's point lives on the
+      // right edge), nudged apart vertically.
+      labels.sort((a, b) => a.y - b.y);
+      let prevBottom = -Infinity;
+      for (const item of labels) {
+        const pillH = 18;
+        let top = item.y - pillH - 3;
+        if (top < 0) top = item.y + 3;
+        if (top < prevBottom + 2) top = prevBottom + 2;
+        if (top + pillH > plotH) top = plotH - pillH;
+        prevBottom = top + pillH;
+        const w = Math.ceil(this._measure(item.text)) + 14;
+        const x = 6;
+        const pill = S('g', { class: `fdc-pill fdc-pill--${item.ref.kind}` });
+        pill.appendChild(S('rect', { x, y: top, width: w, height: pillH, rx: 9 }));
+        pill.appendChild(S('text', { x: x + w / 2, y: top + 12.5, 'text-anchor': 'middle' }, item.text));
+        g.appendChild(pill);
+      }
+
+      // Today's point (drawn above lines and labels)
+      const lastX = xScale(valid.length - 1), lastY = yScale(valid[valid.length - 1].price);
+      g.appendChild(S('circle', { cx: lastX, cy: lastY, r: 7, class: 'fdc-halo' }));
+      g.appendChild(S('circle', { cx: lastX, cy: lastY, r: 3.5, class: 'fdc-dot' }));
+
+      // Crosshair layer
+      const cross = S('g', { class: 'fdc-cross', visibility: 'hidden' });
+      const crossLine = S('line', { y1: 0, y2: plotH, class: 'fdc-crossline' });
+      const crossDot = S('circle', { r: 4.5, class: 'fdc-crossdot' });
+      cross.appendChild(crossLine);
+      cross.appendChild(crossDot);
+      g.appendChild(cross);
+      const hit = S('rect', { x: 0, y: 0, width: plotW, height: plotH, class: 'fdc-hit', fill: 'transparent' });
+      g.appendChild(hit);
+
+      const tip = document.createElement('div');
+      tip.className = 'fdc-tip';
+      tip.hidden = true;
+      c.appendChild(tip);
+
+      const show = (index) => {
+        this._index = index;
+        const p = valid[index];
+        const x = xScale(index), y = yScale(p.price);
+        crossLine.setAttribute('x1', x); crossLine.setAttribute('x2', x);
+        crossDot.setAttribute('cx', x); crossDot.setAttribute('cy', y);
+        cross.setAttribute('visibility', 'visible');
+        while (tip.firstChild) tip.removeChild(tip.firstChild);
+        const row = (cls, text) => { const el = document.createElement('div'); el.className = cls; el.textContent = text; tip.appendChild(el); };
+        row('fdc-tip-date', this.fmt.dayLong(p.date));
+        row('fdc-tip-price', this.fmt.price(p.price));
+        const prev = index > 0 ? valid[index - 1] : null;
+        if (prev && prev.price !== p.price) {
+          const delta = (p.price - prev.price) / prev.price;
+          row('fdc-tip-delta ' + (delta < 0 ? 'is-down' : 'is-up'), this.t('chart.vsPrevious', { delta: this.fmt.signedPercent(delta) }));
+        }
+        if (Number.isFinite(p.originalPrice) && p.originalPrice > p.price) {
+          row('fdc-tip-claimed', this.t('chart.claimedOnDay', { price: this.fmt.price(p.originalPrice) }));
+        }
+        tip.hidden = false;
+        const cw = c.clientWidth || W;
+        const tw = tip.offsetWidth || 150;
+        const left = Math.min(Math.max(margin.left + x - tw / 2, 4), cw - tw - 4);
+        const above = margin.top + y - (tip.offsetHeight || 60) - 12;
+        tip.style.left = left + 'px';
+        tip.style.top = (above < 0 ? margin.top + y + 14 : above) + 'px';
+      };
+      const hide = () => {
+        this._index = -1;
+        cross.setAttribute('visibility', 'hidden');
+        tip.hidden = true;
+      };
+      const nearest = (px) => {
+        let lo = 0, hi = valid.length - 1;
+        while (hi - lo > 1) {
+          const mid = (lo + hi) >> 1;
+          if (xScale(mid) < px) lo = mid; else hi = mid;
+        }
+        return Math.abs(xScale(lo) - px) <= Math.abs(xScale(hi) - px) ? lo : hi;
+      };
+      hit.addEventListener('pointermove', (e) => {
+        const box = svg.getBoundingClientRect();
+        const scale = box.width ? W / box.width : 1;
+        show(nearest((e.clientX - box.left) * scale - margin.left));
+      });
+      hit.addEventListener('pointerleave', hide);
+
+      svg.setAttribute('tabindex', '0');
+      svg.addEventListener('focus', () => show(this._index >= 0 ? this._index : valid.length - 1));
+      svg.addEventListener('blur', hide);
+      svg.addEventListener('keydown', (e) => {
+        const keys = { ArrowLeft: -1, ArrowRight: 1, Home: -Infinity, End: Infinity };
+        if (!(e.key in keys)) return;
+        e.preventDefault();
+        show(Math.max(0, Math.min(valid.length - 1, (this._index < 0 ? valid.length - 1 : this._index) + keys[e.key])));
+      });
     }
   };
 }
-

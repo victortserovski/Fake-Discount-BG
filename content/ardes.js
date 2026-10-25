@@ -183,7 +183,6 @@
       main.appendChild(widgetContainer);
     }
 
-    ContentScriptBase.loadWidgetCSS();
     await ContentScriptBase.loadWidgetScripts(widgetContainer, product, analysis);
   }
 

@@ -63,13 +63,10 @@ function detectFakeDiscount(productData) {
   const recentObservations = recentHistory.length;
   const recentDays = Math.min(days, 30);
 
-  // Format a price as "<value> EUR" so verdict reason strings can inline
-  // the actual numbers being compared. Hard-coded EUR because storage and
-  // display are EUR across all sites — if currencies become configurable,
-  // change here once. The formatter lives in the verdict layer (not in
-  // i18n templates) so each language template is just a `{placeholder}`
-  // substitution and doesn't need to know about currency suffixes.
-  const fmt = (n) => `${Number(n).toFixed(2)} EUR`;
+  // Price params (`*Price` keys) are passed as numbers rounded to cents; the
+  // widget formats them with the active locale's EUR format so the reason
+  // text matches every other price on the panel.
+  const fmt = (n) => Math.round(Number(n) * 100) / 100;
 
   const stats = {
     allTimeLow,

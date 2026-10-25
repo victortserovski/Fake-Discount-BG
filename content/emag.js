@@ -230,7 +230,6 @@
     }
 
     // Load widget using shared utilities
-    ContentScriptBase.loadWidgetCSS();
     await ContentScriptBase.loadWidgetScripts(widgetContainer, product, analysis);
   }
 

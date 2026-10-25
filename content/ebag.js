@@ -28,6 +28,17 @@
     return !!readProductJsonLd();
   }
 
+  // The main product's buy column: the H1's ancestor that is the second
+  // child of a two-column row (left: gallery + description, right: H1,
+  // price and add-to-cart). Recommendation tiles never contain the H1.
+  function h1Column(h1) {
+    let col = h1;
+    while (col.parentElement && !(col.parentElement.children.length === 2 && col.parentElement.children[1] === col)) {
+      col = col.parentElement;
+    }
+    return col;
+  }
+
   function isDomOos() {
     const page = document.querySelector('[data-page-name="productPage"], #store-root');
     const heading = page?.querySelector('h1');
@@ -82,10 +93,18 @@
       }
       if (domOos) price = null;
 
-      // No reliable visible was-price selector in the saved SPA shell
-      // samples — rely on history-based fake-discount detection.
-      const originalPrice = null;
-      const discount = null;
+      // Promotions show the previous price struck through (`line-through`)
+      // next to the red current price, inside the main buy column; only
+      // accept it when it is above the current price.
+      let originalPrice = null;
+      const heading = document.querySelector('h1');
+      const column = heading ? h1Column(heading) : null;
+      const struck = column && column.querySelector('.line-through');
+      if (struck && price != null) {
+        const was = ProductParser.parsePrice(struck.textContent || '');
+        if (was && was > price) originalPrice = was;
+      }
+      const discount = originalPrice ? ProductParser.calculateDiscount(originalPrice, price) : null;
 
       let thumbnail = null;
       if (ld && ld.image) thumbnail = Array.isArray(ld.image) ? ld.image[0] : ld.image;
@@ -134,7 +153,16 @@
     // everything else on the page.
     const pageRoot = document.querySelector('[data-page-name="productPage"]') || document.querySelector('#store-root');
     const h1 = document.querySelector('h1');
-    if (pageRoot && h1) {
+    // Current layout: a two-column row — left column (gallery, then
+    // description and carousels) and a sticky right buy column holding the
+    // H1. The row is ~1800px tall, so "after the row" buried the panel.
+    // Insert in the left column right after the gallery block instead.
+    const leftColumn = h1 && h1Column(h1).previousElementSibling;
+    if (leftColumn && leftColumn.children.length > 1) {
+      leftColumn.insertBefore(widgetContainer, leftColumn.children[1]);
+      inserted = true;
+    }
+    if (!inserted && pageRoot && h1) {
       // Walk up from H1 until we find an ancestor that is a direct
       // child of pageRoot.
       let target = h1;
@@ -153,7 +181,6 @@
       const root = document.querySelector('#store-root, main') || document.body;
       root.appendChild(widgetContainer);
     }
-    ContentScriptBase.loadWidgetCSS();
     await ContentScriptBase.loadWidgetScripts(widgetContainer, product, analysis);
   }
 

@@ -14,7 +14,13 @@
 
   function isProductPage() {
     const url = window.location.href;
-    return /dm-drogeriemarkt\.bg\/p\/d\/\d+/i.test(url);
+    if (!/dm-drogeriemarkt\.bg\/p\/d\/\d+/i.test(url)) return false;
+    // Delisted products keep their /p/d/<id> URL but render a
+    // "Грешен номер на артикул?" page. Once the SPA has hydrated (header
+    // present), require the product detail container; trackAndDisplay
+    // re-checks this after extraction, so the panel never appears there.
+    if (!document.querySelector('[data-dmid="header"]')) return true;
+    return !!document.querySelector('[data-dmid="product-detail-page"]');
   }
 
   function parseEurFromText(txt) {
@@ -187,11 +193,20 @@
     //   description-group (with localized accordion items like
     //   "Продуктово описание-container") → bottom-detail-page-reco-slider
     //   → product-slider-wrapper → feedback-box → footer.
-    // The cleanest anchor is BEFORE the bottom recommendation slider —
-    // that puts the widget at the boundary between the product detail
-    // section (image + buy + description + accordion) and the
-    // "people also bought" / related-products carousel. Full-width.
-    const anchors = [
+    // Best spot: directly under the image + buy box row, i.e. before the
+    // "Информация за продукта" section that wraps description-group (the
+    // section is the direct child of product-detail-page; inserting before
+    // description-group itself would split the heading from its content).
+    const descGroup = document.querySelector('[data-dmid="description-group"]');
+    const infoSection = descGroup && (descGroup.closest('[data-dmid="product-detail-page"] > *') || descGroup);
+    if (infoSection && infoSection.parentNode) {
+      infoSection.parentNode.insertBefore(widgetContainer, infoSection);
+      inserted = true;
+    }
+    // Otherwise BEFORE the bottom recommendation slider — the boundary
+    // between the product detail section and the "people also bought"
+    // carousel. Full-width.
+    const anchors = inserted ? [] : [
       '[data-dmid="bottom-detail-page-reco-slider"]',
       '[data-dmid="product-slider-wrapper"]',
       '[data-dmid*="reco-slider"]',
@@ -223,7 +238,6 @@
       console.warn('[Fake Discount] dm: no product-detail anchor found; widget not injected. Send a saved page if this persists.');
       return;
     }
-    ContentScriptBase.loadWidgetCSS();
     await ContentScriptBase.loadWidgetScripts(widgetContainer, product, analysis);
   }
 

@@ -1,610 +1,454 @@
-// Price Graph Widget - Runs in content script isolated world
-(function() {
+// In-page price panel. Runs in the content-script isolated world and renders
+// into an open shadow root on the #fake-discount-widget host, so retailer CSS
+// can't restyle it and its styles can't leak into the retailer page.
+(function () {
   'use strict';
 
-  let i18n = null;
+  const kit = window.FDKit;
+  const { h, icon } = kit;
+  const RANGES = [['1m', 30], ['3m', 90], ['1y', 365]];
+  const FAILURE_REASONS = new Set(['extractionFailed', 'trackingFailed']);
+  const isolated = new WeakSet();
+  let i18nPromise = null;
 
-  // Map the extension's language code to a BCP-47 locale for date formatting.
-  function getLocale() {
-    const lang = (i18n && i18n.getCurrentLanguage && i18n.getCurrentLanguage()) || 'bg';
-    return lang === 'en' ? 'en-US' : 'bg-BG';
+  function loadI18n() {
+    if (!i18nPromise) {
+      const fallback = { t: key => key, getCurrentLanguage: () => 'bg' };
+      i18nPromise = (async () => {
+        const instance = window.i18n || (window.I18n ? new window.I18n() : null);
+        if (!instance) return fallback;
+        await instance.loadTranslations();
+        return instance;
+      })().catch(() => fallback);
+    }
+    return i18nPromise;
   }
 
-  async function loadI18n() {
-    if (i18n) return i18n;
+  function extensionUrl(path) {
+    try { return chrome.runtime.getURL(path); } catch (_) { return ''; }
+  }
 
-    try {
-      if (window.i18n && window.i18n.loadTranslations) {
-        try {
-          await window.i18n.loadTranslations();
-          if (window.i18n.translations && Object.keys(window.i18n.translations).length > 0) {
-            i18n = window.i18n;
-            return i18n;
-          }
-        } catch (e) {}
-      }
+  // Keep widget events away from the host page (e.g. Ozone's add-to-cart
+  // form, retailer keyboard shortcuts). Bubble phase only — a capture-phase
+  // listener here would swallow the event before it reaches our own
+  // input/button.
+  function isolate(container) {
+    if (isolated.has(container)) return;
+    isolated.add(container);
+    for (const eventType of ['click', 'mousedown', 'mouseup', 'pointerdown', 'pointerup', 'submit', 'keydown', 'keyup', 'keypress']) {
+      container.addEventListener(eventType, (e) => {
+        e.stopPropagation();
+        if (eventType === 'submit') e.preventDefault();
+      });
+    }
+  }
 
-      if (window.I18n) {
-        try {
-          i18n = new window.I18n();
-          await i18n.loadTranslations();
-          if (i18n.translations && Object.keys(i18n.translations).length > 0) {
-            return i18n;
-          }
-        } catch (e) {}
-      }
-    } catch (e) {}
+  // Shadow root + stylesheet. The stage stays invisible until the stylesheet
+  // has loaded so the page never flashes unstyled widget markup.
+  function mount(container) {
+    const shadow = container.shadowRoot || container.attachShadow({ mode: 'open' });
+    while (shadow.firstChild) shadow.removeChild(shadow.firstChild);
+    const stage = h('div', { class: 'fd-stage' });
+    stage.style.visibility = 'hidden';
+    const href = extensionUrl('ui/price-graph-widget.css');
+    let ready = Promise.resolve();
+    if (href) {
+      const link = h('link', { rel: 'stylesheet', href });
+      ready = new Promise(resolve => {
+        link.addEventListener('load', resolve);
+        link.addEventListener('error', resolve);
+        setTimeout(resolve, 2500);
+      });
+      shadow.appendChild(link);
+    }
+    shadow.appendChild(stage);
+    return { stage, ready: ready.then(() => { stage.style.visibility = ''; }) };
+  }
 
-    let lang = 'bg';
-    try {
-      const langResult = await chrome.storage.local.get(['language']);
-      lang = langResult.language || 'bg';
-    } catch (e) {}
+  // Reason params arrive as raw numbers; prices are formatted here so the
+  // explanation uses the same currency format as the rest of the panel.
+  function formatReasonParams(params, fmt) {
+    const out = {};
+    for (const [key, value] of Object.entries(params || {})) {
+      if (typeof value !== 'number') out[key] = value;
+      else out[key] = /Price$/.test(key) ? fmt.price(value) : fmt.number(value);
+    }
+    return out;
+  }
 
-    try {
-      const runtimeUrl = chrome.runtime.getURL(`i18n/${lang}.json`);
-      const response = await fetch(runtimeUrl);
-      if (response.ok) {
-        const translations = await response.json();
-        if (translations && typeof translations === 'object') {
-          i18n = {
-            t: (key, params = {}) => {
-              const keys = key.split('.');
-              let value = translations;
-              for (const k of keys) {
-                if (value && typeof value === 'object') {
-                  value = value[k];
-                } else {
-                  return key;
-                }
-              }
-              if (typeof value !== 'string') return key;
-              let translated = value;
-              for (const [paramKey, paramValue] of Object.entries(params)) {
-                // replaceAll so repeated placeholders (e.g. "{needed}" appearing
-                // twice in the same string) are all substituted, not just the first.
-                translated = translated.replaceAll(`{${paramKey}}`, paramValue);
-              }
-              return translated;
-            },
-            getCurrentLanguage: () => lang
-          };
-          return i18n;
+  function num(value) {
+    return typeof value === 'number' && Number.isFinite(value) && value > 0 ? value : null;
+  }
+
+  async function readStorage(keys) {
+    try { return await chrome.storage.local.get(keys); } catch (_) { return {}; }
+  }
+
+  function buildPanel(ctx) {
+    const { t, fmt, product, analysis, stats } = ctx;
+    const verdict = analysis.verdict || 'TRACKING';
+    const meta = kit.verdictMeta(verdict);
+    const failed = FAILURE_REASONS.has(analysis.reasonKey);
+    // A successful visit always records today's observation, so an empty
+    // history means the page offered no purchasable price (out of stock).
+    const noPrice = !stats && !failed;
+    const verdictTitle = failed ? t('widget.failed') : noPrice ? t('widget.unavailable') : t(`verdicts.${verdict}`);
+    const chipText = failed || noPrice ? t('widget.unavailableShort') : t(`verdictShort.${verdict}`);
+    const site = product.site || kit.siteFromUrl(product.url || location.href);
+    const siteMeta = kit.SITES[site];
+    const today = stats ? stats.last.price : null;
+    const claimed = num(analysis.originalPrice) || num(stats && stats.last.originalPrice);
+    ctx.claimed = claimed && today && claimed > today ? claimed : null;
+
+    const root = h('div', { class: 'fd', 'data-tone': meta.tone, 'data-collapsed': String(ctx.collapsed) });
+    ctx.root = root;
+
+    // ── Header (doubles as the collapsed summary) ──
+    const toggle = h('button', {
+      type: 'button', class: 'fd-icon-btn fd-toggle',
+      'aria-expanded': String(!ctx.collapsed),
+      'aria-label': ctx.collapsed ? t('widget.expand') : t('widget.collapse'),
+      title: ctx.collapsed ? t('widget.expand') : t('widget.collapse')
+    }, icon('chevronDown', 18));
+    ctx.toggle = toggle;
+    const header = h('header', { class: 'fd-head' },
+      h('div', { class: 'fd-brand' },
+        h('img', { class: 'fd-logo', src: extensionUrl('icons/icon32.png') || null, alt: '', width: 20, height: 20 }),
+        h('span', { class: 'fd-brand-name' }, t('brand.name'))
+      ),
+      siteMeta && h('span', { class: 'fd-store' }, kit.storeMono(site), siteMeta.domain),
+      h('span', { class: 'fd-spacer' }),
+      h('span', { class: 'fd-summary' },
+        h('span', { class: 'fd-chip' }, icon(failed || noPrice ? 'info' : meta.icon, 14), chipText),
+        today != null && h('span', { class: 'fd-summary-price' }, fmt.price(today))
+      ),
+      toggle
+    );
+    header.addEventListener('click', (e) => {
+      if (e.target.closest('.fd-toggle') || ctx.collapsed) ctx.setCollapsed(!ctx.collapsed);
+    });
+    root.appendChild(header);
+
+    const body = h('div', { class: 'fd-body' });
+    const bodyWrap = h('div', { class: 'fd-body-wrap' }, body);
+    if (ctx.collapsed) bodyWrap.setAttribute('inert', '');
+    ctx.bodyWrap = bodyWrap;
+    root.appendChild(bodyWrap);
+
+    // ── Verdict ──
+    let reason = null;
+    if (noPrice) {
+      reason = t('widget.unavailableReason');
+    } else if (analysis.reasonKey) {
+      const text = t(`reasons.${analysis.reasonKey}`, formatReasonParams(analysis.reasonParams, fmt));
+      if (text !== `reasons.${analysis.reasonKey}`) reason = text;
+    }
+    let progress = null;
+    if (stats && verdict === 'TRACKING' && analysis.reasonKey === 'insufficientData') {
+      const current = Number(analysis.reasonParams?.current) || 0;
+      const needed = Number(analysis.reasonParams?.needed) || 7;
+      const bar = h('span', { class: 'fd-progress-fill' });
+      bar.style.width = `${Math.min(100, (current / needed) * 100)}%`;
+      progress = h('div', { class: 'fd-progress' },
+        h('span', { class: 'fd-progress-track', role: 'progressbar', 'aria-valuemin': 0, 'aria-valuemax': needed, 'aria-valuenow': current, 'aria-label': t('widget.progress', { current, needed }) }, bar),
+        h('span', { class: 'fd-progress-label' }, t('widget.progress', { current, needed }))
+      );
+    }
+    body.appendChild(h('section', { class: 'fd-verdict' },
+      h('span', { class: 'fd-verdict-icon' }, icon(failed || noPrice ? 'info' : meta.icon, 20)),
+      h('div', { class: 'fd-verdict-body' },
+        h('h3', { class: 'fd-verdict-title' }, verdictTitle),
+        reason && h('p', { class: 'fd-verdict-reason' }, reason),
+        progress
+      )
+    ));
+
+    if (stats) {
+      // ── Key numbers ──
+      const avgDelta = stats.average > 0 ? (today - stats.average) / stats.average : 0;
+      const todaySub = ctx.claimed
+        ? h('span', { class: 'fd-stat-sub fd-claimed', title: t('widget.claimedHint') },
+          t('widget.claimedShort'), ' ', h('s', null, fmt.price(ctx.claimed)), ' ',
+          h('b', null, fmt.signedPercent((today - ctx.claimed) / ctx.claimed)))
+        : h('span', { class: 'fd-stat-sub' + (Math.abs(avgDelta) >= 0.005 ? (avgDelta < 0 ? ' is-down' : ' is-up') : '') },
+          Math.abs(avgDelta) >= 0.005 ? t('widget.vsAverage', { percent: fmt.signedPercent(avgDelta) }) : t('widget.atAverage'));
+      const stat = (cls, label, value, sub) => h('div', { class: 'fd-stat ' + cls },
+        h('span', { class: 'fd-stat-label' }, label),
+        h('span', { class: 'fd-stat-value' }, value),
+        sub
+      );
+      body.appendChild(h('section', { class: 'fd-stats' },
+        stat('fd-stat--today', t('widget.today'), fmt.price(today), todaySub),
+        stat('fd-stat--low', t('widget.lowest'), fmt.price(stats.low.price), h('span', { class: 'fd-stat-sub' }, t('widget.onDate', { date: fmt.day(stats.low.date) }))),
+        stat('fd-stat--avg', t('widget.average'), fmt.price(stats.average), h('span', { class: 'fd-stat-sub' }, kit.tPlural(t, fmt, 'widget.observations', stats.count))),
+        stat('fd-stat--high', t('widget.highest'), fmt.price(stats.high.price), h('span', { class: 'fd-stat-sub' }, t('widget.onDate', { date: fmt.day(stats.high.date) })))
+      ));
+
+      // ── Chart ──
+      const span = kit.daysBetween(stats.rows[0].date, stats.last.date);
+      const ranges = RANGES.filter(([, days]) => span > days);
+      ctx.range = 'all';
+      let seg = null;
+      if (ranges.length) {
+        seg = h('div', { class: 'fd-seg', role: 'group', 'aria-label': t('widget.rangeLabel') });
+        for (const [key] of [...ranges, ['all']]) {
+          const btn = h('button', { type: 'button', 'aria-pressed': String(key === 'all'), 'data-range': key }, t(`widget.range.${key}`));
+          btn.addEventListener('click', () => {
+            ctx.range = key;
+            seg.querySelectorAll('button').forEach(b => b.setAttribute('aria-pressed', String(b === btn)));
+            ctx.renderChart();
+          });
+          seg.appendChild(btn);
         }
       }
-    } catch (e) {
-      console.error('[Fake Discount] Error loading i18n:', e);
+      ctx.chartEl = h('div', { class: 'fd-chart' });
+      ctx.legend = h('ul', { class: 'fd-legend' });
+      body.appendChild(h('section', { class: 'fd-chart-block' },
+        h('div', { class: 'fd-chart-head' }, h('h4', { class: 'fd-section-title' }, t('widget.history')), seg),
+        ctx.chartEl,
+        ctx.legend
+      ));
     }
 
-    return { t: (key) => key, getCurrentLanguage: () => lang };
+    // ── Footer: target + last change ──
+    const foot = h('footer', { class: 'fd-foot' });
+    if (product.id) foot.appendChild(buildTarget(ctx));
+    if (stats) {
+      foot.appendChild(h('span', { class: 'fd-lastchange' },
+        stats.lastChange ? t('widget.lastChange', { date: fmt.dayLong(stats.lastChange.date) }) : t('widget.noChanges')));
+    }
+    body.appendChild(foot);
+    body.appendChild(h('p', { class: 'fd-note' }, icon('shield', 13), t('widget.disclaimer')));
+    return root;
   }
 
-  const globalObj = (typeof window !== 'undefined') ? window : (typeof self !== 'undefined') ? self : global;
-
-  if (typeof globalObj.FakeDiscountWidget === 'function') {
-    delete globalObj.FakeDiscountWidget;
+  function buildTarget(ctx) {
+    const { t } = ctx;
+    ctx.input = h('input', {
+      id: 'fd-target', class: 'fd-target-input', type: 'text', inputmode: 'decimal',
+      autocomplete: 'off', spellcheck: 'false', placeholder: t('target.placeholder'),
+      'aria-describedby': 'fd-target-status'
+    });
+    ctx.saveBtn = h('button', { type: 'button', class: 'fd-btn fd-btn--primary fd-target-save' }, t('target.set'));
+    ctx.clearBtn = h('button', { type: 'button', class: 'fd-btn fd-btn--ghost fd-target-clear', hidden: true }, t('target.clear'));
+    ctx.status = h('span', { id: 'fd-target-status', class: 'fd-target-status', 'aria-live': 'polite' });
+    return h('div', { class: 'fd-target' },
+      h('label', { class: 'fd-target-label', for: 'fd-target' }, icon('target', 15), t('target.label')),
+      h('span', { class: 'fd-field' }, ctx.input, h('span', { class: 'fd-field-suffix', 'aria-hidden': 'true' }, t('currencySymbol'))),
+      ctx.saveBtn,
+      ctx.clearBtn,
+      ctx.status
+    );
   }
+
+  function wire(ctx) {
+    const { t, fmt, product, stats } = ctx;
+
+    ctx.setCollapsed = (collapsed) => {
+      ctx.collapsed = collapsed;
+      ctx.root.setAttribute('data-collapsed', String(collapsed));
+      ctx.toggle.setAttribute('aria-expanded', String(!collapsed));
+      const label = collapsed ? t('widget.expand') : t('widget.collapse');
+      ctx.toggle.setAttribute('aria-label', label);
+      ctx.toggle.setAttribute('title', label);
+      if (collapsed) ctx.bodyWrap.setAttribute('inert', '');
+      else ctx.bodyWrap.removeAttribute('inert');
+      try { chrome.storage.local.set({ widgetCollapsed: collapsed }); } catch (_) {}
+    };
+
+    ctx.renderChart = () => {
+      if (!ctx.chartEl || !window.AdvancedChart) return;
+      let rows = stats.rows;
+      const days = (RANGES.find(([key]) => key === ctx.range) || [])[1];
+      if (days) {
+        const cutoff = stats.last.date;
+        rows = rows.filter(r => kit.daysBetween(r.date, cutoff) <= days);
+      }
+      const options = {
+        data: rows,
+        average: stats.count > 1 ? stats.average : null,
+        target: ctx.target,
+        claimed: ctx.claimed,
+        targetLabel: t('chart.target'),
+        claimedLabel: t('chart.claimed'),
+        ariaLabel: t('widget.chartLabel', {
+          count: fmt.number(rows.length), from: fmt.dayLong(rows[0].date), to: fmt.dayLong(rows[rows.length - 1].date),
+          low: fmt.price(stats.low.price), high: fmt.price(stats.high.price)
+        })
+      };
+      try {
+        if (ctx.chart) ctx.chart.update(options);
+        else {
+          const width = ctx.chartEl.clientWidth;
+          ctx.chart = new window.AdvancedChart(ctx.chartEl, {
+            ...options, width: width || 600, height: width && width < 520 ? 190 : 230,
+            format: fmt, t, responsive: true
+          });
+        }
+      } catch (e) {
+        console.error('[Fake Discount] Chart error:', e);
+        while (ctx.chartEl.firstChild) ctx.chartEl.removeChild(ctx.chartEl.firstChild);
+        ctx.chartEl.appendChild(h('p', { class: 'fd-chart-error' }, t('errors.chartRenderFailed')));
+      }
+      renderLegend(ctx);
+    };
+
+    if (!ctx.input) return;
+
+    // Target storage key: the stable productId, not the browser URL (the
+    // same product reached via `?ref=…` or `#section` must resolve to the
+    // same target). Targets saved before v3.15.11 were keyed by URL and are
+    // migrated through the service worker on first revisit.
+    const productKey = product.id || product.url || '';
+    const save = async (value) => {
+      const response = await chrome.runtime.sendMessage({ action: 'setPriceTarget', productId: productKey, value });
+      if (!response?.success) throw new Error('Target save failed');
+    };
+
+    const renderStatus = (state) => {
+      const status = ctx.status;
+      status.className = 'fd-target-status';
+      while (status.firstChild) status.removeChild(status.firstChild);
+      ctx.input.removeAttribute('aria-invalid');
+      ctx.clearBtn.hidden = ctx.target == null;
+      if (state === 'invalid') {
+        status.classList.add('is-error');
+        status.textContent = t('target.invalid');
+        ctx.input.setAttribute('aria-invalid', 'true');
+        return;
+      }
+      if (state === 'failed') {
+        status.classList.add('is-error');
+        status.textContent = t('target.saveFailed');
+        return;
+      }
+      if (ctx.target == null) return;
+      const today = stats ? stats.last.price : null;
+      if (today != null && today <= ctx.target) {
+        status.classList.add('is-reached');
+        status.appendChild(icon('check', 13));
+        status.appendChild(document.createTextNode(t('target.reached')));
+      } else if (today != null) {
+        const gap = today - ctx.target;
+        status.textContent = t('target.above', { amount: fmt.price(gap), percent: fmt.percent(gap / today) });
+      }
+    };
+
+    const flash = () => {
+      const btn = ctx.saveBtn;
+      while (btn.firstChild) btn.removeChild(btn.firstChild);
+      btn.appendChild(icon('check', 15));
+      btn.appendChild(document.createTextNode(t('target.saved')));
+      btn.classList.add('is-saved');
+      clearTimeout(ctx.flashTimer);
+      ctx.flashTimer = setTimeout(() => {
+        btn.textContent = t('target.set');
+        btn.classList.remove('is-saved');
+      }, 1400);
+    };
+
+    const commit = async (value) => {
+      try {
+        await save(value);
+        ctx.target = value;
+        ctx.input.value = value == null ? '' : fmt.decimal(value);
+        renderStatus();
+        if (value != null) flash();
+        ctx.renderChart();
+      } catch (e) {
+        console.error('[Fake Discount] Error saving price target:', e);
+        renderStatus('failed');
+      }
+    };
+
+    ctx.saveBtn.addEventListener('click', () => {
+      const raw = ctx.input.value.trim();
+      if (!raw) {
+        if (ctx.target != null) commit(null);
+        else renderStatus('invalid');
+        return;
+      }
+      const value = kit.parsePriceInput(raw);
+      if (!(value > 0 && value <= 1000000)) return renderStatus('invalid');
+      commit(value);
+    });
+    ctx.clearBtn.addEventListener('click', () => commit(null));
+    ctx.input.addEventListener('input', () => {
+      if (ctx.input.getAttribute('aria-invalid')) renderStatus();
+    });
+    // Enter sets the target. preventDefault keeps it from ever acting as an
+    // implicit form submission; the shared loader also keeps the widget
+    // outside retailer forms.
+    ctx.input.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        e.stopPropagation();
+        ctx.saveBtn.click();
+      }
+    });
+
+    ctx.loadTarget = async () => {
+      const legacyUrlKey = product.url || '';
+      const targets = (await readStorage(['priceTargets'])).priceTargets || {};
+      let existing = targets[productKey];
+      if (existing == null && legacyUrlKey && legacyUrlKey !== productKey && targets[legacyUrlKey] != null) {
+        existing = targets[legacyUrlKey];
+        try { await save(existing); } catch (_) {}
+      }
+      if (typeof existing === 'number' && existing > 0) {
+        ctx.target = existing;
+        ctx.input.value = fmt.decimal(existing);
+      }
+      renderStatus();
+    };
+  }
+
+  function renderLegend(ctx) {
+    const { t, legend } = ctx;
+    if (!legend) return;
+    while (legend.firstChild) legend.removeChild(legend.firstChild);
+    const item = (kind, label) => legend.appendChild(h('li', null, h('span', { class: `fd-key fd-key--${kind}` }), label));
+    item('price', t('widget.legend.price'));
+    if (ctx.stats.count > 1) item('avg', t('widget.legend.average'));
+    if (ctx.target != null) item('target', t('widget.legend.target'));
+    if (ctx.claimed != null) item('claimed', t('widget.legend.claimed'));
+  }
+
+  const globalObj = (typeof window !== 'undefined') ? window : self;
 
   globalObj.FakeDiscountWidget = {
     async init(container, product, analysis) {
-      if (!container || !container.parentNode) {
-        return;
-      }
-
+      if (!container || !container.parentNode) return;
+      const i18n = await loadI18n();
+      const t = (key, params) => i18n.t(key, params);
+      const fmt = kit.format(i18n.getCurrentLanguage ? i18n.getCurrentLanguage() : 'bg');
+      isolate(container);
+      const { stage, ready } = mount(container);
       try {
-        await loadI18n();
-      } catch (e) {}
-
-      const t = (key, params) => {
-        if (i18n && i18n.t) {
-          return i18n.t(key, params);
-        }
-        return key;
-      };
-
-      try {
-        const fragment = this.buildWidgetHTML(product, analysis, t);
-
-        while (container.firstChild) {
-          container.removeChild(container.firstChild);
-        }
-
-        container.appendChild(fragment);
-        container.style.backgroundColor = '';
+        const prefs = await readStorage(['widgetCollapsed']);
+        const ctx = {
+          t, fmt, product: product || {}, analysis: analysis || {},
+          stats: kit.historyStats(product && product.history),
+          collapsed: prefs.widgetCollapsed === true,
+          target: null
+        };
+        stage.appendChild(buildPanel(ctx));
+        wire(ctx);
         container.setAttribute('data-widget-status', 'initialized');
-
-        // Prevent widget events from bubbling up to the host page (e.g. Ozone's
-        // add-to-cart form). Bubble phase only — a capture-phase listener here
-        // would swallow the event before it reaches our own input/button.
-        for (const eventType of ['click', 'mousedown', 'mouseup', 'pointerdown', 'pointerup', 'submit']) {
-          container.addEventListener(eventType, (e) => {
-            e.stopPropagation();
-            if (eventType === 'submit') e.preventDefault();
-          });
-        }
-
-        void container.offsetHeight;
-
-        await new Promise(resolve => setTimeout(resolve, 100));
-
-        let chartContainer = container.querySelector('.fake-discount-chart') ||
-                            container.querySelector('[id^="price-chart-"]');
-
-        if (!chartContainer) {
-          const chartContainerParent = container.querySelector('.fake-discount-chart-container');
-          if (chartContainerParent) {
-            chartContainer = chartContainerParent.querySelector('.fake-discount-chart');
-            if (!chartContainer && chartContainerParent.children.length > 0) {
-              chartContainer = chartContainerParent.children[0];
-            }
-          }
-        }
-
-        if (chartContainer) {
-          await this.renderChart(product, analysis, t, container);
-        } else {
-          const chartContainerParent = container.querySelector('.fake-discount-chart-container');
-          if (chartContainerParent) {
-            const chartDiv = document.createElement('div');
-            chartDiv.className = 'fake-discount-chart';
-            chartDiv.id = `price-chart-${Date.now()}`;
-            while (chartContainerParent.firstChild) {
-              chartContainerParent.removeChild(chartContainerParent.firstChild);
-            }
-            chartContainerParent.appendChild(chartDiv);
-            await this.renderChart(product, analysis, t, container);
-          }
-        }
-
-        // Setup price target (analysis is needed so we can re-render the chart
-        // when the user changes the target without losing the verdict context).
-        this.setupPriceTarget(container, product, analysis, t);
+        container.style.minHeight = '';
+        if (ctx.loadTarget) await ctx.loadTarget();
+        await ready;
+        if (ctx.stats) ctx.renderChart();
       } catch (e) {
         console.error('[Fake Discount] Widget error:', e);
-        while (container.firstChild) {
-          container.removeChild(container.firstChild);
-        }
-        const errorDiv = document.createElement('div');
-        errorDiv.className = 'fake-discount-error';
-        errorDiv.textContent = t('errorLoadingWidget') || 'Error loading widget';
-        container.appendChild(errorDiv);
+        this.renderError(container, t('errorLoadingWidget'));
       }
     },
 
-    buildWidgetHTML(product, analysis, t) {
-      const fragment = document.createDocumentFragment();
-
-      const verdict = analysis.verdict || 'STABLE_PRICE';
-      const verdictClass = verdict === 'FAKE_DISCOUNT' ? 'fake' :
-                          verdict === 'REAL_DEAL' ? 'real' :
-                          verdict === 'STABLE_PRICE' ? 'stable' :
-                          verdict === 'VOLATILE_PRICE' ? 'volatile' : 'neutral';
-      const verdictText = t(`verdicts.${verdict}`) || verdict;
-      // URL-fallback site detection — order matters: longer/more-specific
-      // hostnames first so e.g. `technomarket.bg` doesn't accidentally match
-      // a substring inside another URL. `product.site` from the adapter is
-      // always preferred when present.
-      const site = product.site || (
-        product.url?.includes('technomarket.bg') ? 'technomarket' :
-        product.url?.includes('technopolis.bg') ? 'technopolis' :
-        product.url?.includes('emag.bg') ? 'emag' :
-        product.url?.includes('notino.bg') ? 'notino' :
-        product.url?.includes('zora.bg') ? 'zora' :
-        product.url?.includes('ardes.bg') ? 'ardes' :
-        product.url?.includes('plesio.bg') ? 'plesio' :
-        product.url?.includes('aboutyou.bg') ? 'aboutyou' :
-        product.url?.includes('answear.bg') ? 'answear' :
-        product.url?.includes('decathlon.bg') ? 'decathlon' :
-        product.url?.includes('dm-drogeriemarkt.bg') ? 'dm' :
-        product.url?.includes('fashiondays.bg') ? 'fashiondays' :
-        product.url?.includes('lillydrogerie.bg') ? 'lilly' :
-        product.url?.includes('mr-bricolage.bg') ? 'bricolage' :
-        product.url?.includes('obuvki.bg') ? 'obuvki' :
-        product.url?.includes('praktiker.bg') ? 'praktiker' :
-        product.url?.includes('sopharmacy.bg') ? 'sopharmacy' :
-        product.url?.includes('sportdepot.bg') ? 'sportdepot' :
-        product.url?.includes('ebag.bg') ? 'ebag' :
-        'ozone'
-      );
-      const SITE_NAMES = {
-        emag: 'eMAG.bg',
-        ozone: 'Ozone.bg',
-        notino: 'Notino.bg',
-        technopolis: 'Technopolis.bg',
-        technomarket: 'Technomarket.bg',
-        zora: 'Zora.bg',
-        ardes: 'Ardes.bg',
-        plesio: 'Plesio.bg',
-        aboutyou: 'Aboutyou.bg',
-        answear: 'Answear.bg',
-        decathlon: 'Decathlon.bg',
-        dm: 'dm-drogeriemarkt.bg',
-        fashiondays: 'Fashiondays.bg',
-        lilly: 'Lillydrogerie.bg',
-        bricolage: 'Mr-bricolage.bg',
-        obuvki: 'Obuvki.bg',
-        praktiker: 'Praktiker.bg',
-        sopharmacy: 'Sopharmacy.bg',
-        sportdepot: 'Sportdepot.bg',
-        ebag: 'eBag.bg'
-      };
-      const siteName = SITE_NAMES[site] || 'Ozone.bg';
-      const stats = analysis.stats || {};
-      const allTimeLow = stats.allTimeLow ?? (product.history && product.history.length > 0 ? Math.min(...product.history.map(h => h.price)) : 0);
-      const allTimeHigh = stats.allTimeHigh ?? (product.history && product.history.length > 0 ? Math.max(...product.history.map(h => h.price)) : 0);
-      const currency = t('currency') || 'EUR';
-      const hasHistory = product.history && product.history.length > 0;
-
-      // Verdict Banner with reason text
-      const verdictBanner = document.createElement('div');
-      verdictBanner.className = `fake-discount-verdict-banner ${verdictClass}`;
-      const siteIndicator = document.createElement('div');
-      siteIndicator.className = `fake-discount-site-indicator ${site}`;
-      siteIndicator.textContent = siteName;
-      verdictBanner.appendChild(siteIndicator);
-
-      const verdictContent = document.createElement('div');
-      verdictContent.className = 'fake-discount-verdict-content';
-      const verdictTitle = document.createElement('div');
-      verdictTitle.className = 'fake-discount-verdict-title';
-      verdictTitle.textContent = verdictText;
-      verdictContent.appendChild(verdictTitle);
-
-      // Add reason text below the verdict (always show it — including for the
-      // TRACKING state, where the reason explains how many days are still needed).
-      const reasonKey = analysis.reasonKey;
-      if (reasonKey) {
-        const reasonText = t(`reasons.${reasonKey}`, analysis.reasonParams || {});
-        if (reasonText && reasonText !== `reasons.${reasonKey}`) {
-          const reasonDiv = document.createElement('div');
-          reasonDiv.className = 'fake-discount-verdict-reason';
-          reasonDiv.textContent = reasonText;
-          verdictContent.appendChild(reasonDiv);
-        }
-      }
-
-      verdictBanner.appendChild(verdictContent);
-      fragment.appendChild(verdictBanner);
-
-      // Stats Grid - 2 stats: Low and High
-      const statsGrid = document.createElement('div');
-      statsGrid.className = 'fake-discount-stats-grid two-cols';
-
-      const stat1 = document.createElement('div');
-      stat1.className = 'fake-discount-stat-item';
-      const label1 = document.createElement('div');
-      label1.className = 'fake-discount-stat-label';
-      label1.textContent = t('stats.allTimeLow');
-      const value1 = document.createElement('div');
-      value1.className = 'fake-discount-stat-value low';
-      value1.textContent = hasHistory ? `${allTimeLow.toFixed(2)} ${currency}` : t('stats.notAvailable');
-      stat1.appendChild(label1);
-      stat1.appendChild(value1);
-      statsGrid.appendChild(stat1);
-
-      const stat2 = document.createElement('div');
-      stat2.className = 'fake-discount-stat-item';
-      const label2 = document.createElement('div');
-      label2.className = 'fake-discount-stat-label';
-      label2.textContent = t('stats.allTimeHigh');
-      const value2 = document.createElement('div');
-      value2.className = 'fake-discount-stat-value high';
-      value2.textContent = hasHistory ? `${allTimeHigh.toFixed(2)} ${currency}` : t('stats.notAvailable');
-      stat2.appendChild(label2);
-      stat2.appendChild(value2);
-      statsGrid.appendChild(stat2);
-
-      fragment.appendChild(statsGrid);
-
-      // Chart Container
-      const chartContainerParent = document.createElement('div');
-      chartContainerParent.className = 'fake-discount-chart-container';
-
-      const chartDiv = document.createElement('div');
-      chartDiv.className = 'fake-discount-chart';
-      chartDiv.id = `price-chart-${Date.now()}`;
-      chartContainerParent.appendChild(chartDiv);
-      fragment.appendChild(chartContainerParent);
-
-      // Bottom bar: only last price change
-      const lastChangeDate = hasHistory ? this.getLastPriceChangeDate(product.history) : null;
-      const infoBar = document.createElement('div');
-      infoBar.className = 'fake-discount-info-bar';
-
-      const changeItem = document.createElement('div');
-      changeItem.className = 'fake-discount-info-item';
-      const changeIcon = document.createElement('span');
-      changeIcon.className = 'fake-discount-info-icon';
-      changeIcon.innerHTML = '&#x1F504;';
-      const changeText = document.createElement('span');
-      changeText.className = 'fake-discount-info-text';
-      changeText.textContent = lastChangeDate
-        ? `${t('bottomBar.lastChange') || 'Changed'}: ${lastChangeDate}`
-        : (t('bottomBar.noChanges') || 'No changes');
-      changeItem.appendChild(changeIcon);
-      changeItem.appendChild(changeText);
-      infoBar.appendChild(changeItem);
-
-      // Price target section
-      const targetItem = document.createElement('div');
-      targetItem.className = 'fake-discount-info-item fake-discount-target-item';
-      const targetIcon = document.createElement('span');
-      targetIcon.className = 'fake-discount-info-icon';
-      targetIcon.innerHTML = '&#x1F3AF;';
-      const targetLabel = document.createElement('span');
-      targetLabel.className = 'fake-discount-info-text';
-      targetLabel.textContent = t('priceTarget.label') || 'Target:';
-      const targetInput = document.createElement('input');
-      targetInput.type = 'number';
-      targetInput.className = 'fake-discount-target-input';
-      targetInput.placeholder = `${currency}`;
-      targetInput.min = '0';
-      targetInput.step = '0.01';
-      targetInput.setAttribute('data-product-id', product.id || product.url || '');
-      const targetBtn = document.createElement('button');
-      targetBtn.type = 'button'; // Prevent native form submission if inside a <form>
-      targetBtn.className = 'fake-discount-target-btn';
-      targetBtn.textContent = t('priceTarget.set') || 'Set';
-      const targetStatus = document.createElement('span');
-      targetStatus.className = 'fake-discount-info-text fake-discount-target-status';
-      targetItem.appendChild(targetIcon);
-      targetItem.appendChild(targetLabel);
-      targetItem.appendChild(targetInput);
-      targetItem.appendChild(targetBtn);
-      targetItem.appendChild(targetStatus);
-      infoBar.appendChild(targetItem);
-
-      fragment.appendChild(infoBar);
-
-      return fragment;
-    },
-
-    getLastPriceChangeDate(history) {
-      if (!history || history.length < 2) return null;
-      for (let i = history.length - 1; i > 0; i--) {
-        if (history[i].price !== history[i - 1].price) {
-          const date = new Date(history[i].date);
-          if (!isNaN(date.getTime())) {
-            return date.toLocaleDateString(getLocale(), { day: '2-digit', month: '2-digit' });
-          }
-        }
-      }
-      return null;
-    },
-
-    async setupPriceTarget(container, product, analysis, t) {
-      const input = container.querySelector('.fake-discount-target-input');
-      const btn = container.querySelector('.fake-discount-target-btn');
-      const status = container.querySelector('.fake-discount-target-status');
-      if (!input || !btn) return;
-
-      // Target storage key. Prefer the stable productId over the
-      // browser URL — same product visited via a `?ref=…` referrer
-      // or a `#section` anchor should resolve to the same target.
-      // The URL fallback is only there for products somehow loaded
-      // without a productId (shouldn't happen — every adapter sets
-      // one — but defensive).
-      const productKey = product.id || product.url || '';
-      const legacyUrlKey = product.url || '';
-      const currency = t('currency') || 'EUR';
-      const self = this;
-
-      // Update the inline status pill based on the current target value.
-      const renderStatus = (targetValue) => {
-        status.classList.remove('active', 'text-success', 'reached');
-        if (!targetValue) {
-          status.textContent = '';
-          return;
-        }
-        const currentPrice = product.history && product.history.length > 0
-          ? product.history[product.history.length - 1].price : null;
-        const reached = currentPrice != null && currentPrice <= targetValue;
-        if (reached) {
-          status.textContent = `${t('priceTarget.reached') || 'Target reached!'} (${targetValue} ${currency})`;
-          status.classList.add('reached');
-        } else {
-          status.textContent = `${targetValue} ${currency}`;
-          status.classList.add('active');
-        }
-      };
-
-      const saveTarget = async (value) => {
-        const response = await chrome.runtime.sendMessage({ action: 'setPriceTarget', productId: productKey, value });
-        if (!response?.success) throw new Error('Target save failed');
-      };
-
-      // Load existing target. Read the new id-keyed value first, fall
-      // back to the legacy url-keyed value (and migrate it). Targets
-      // set before v3.15.11 were keyed by `product.url`; we move them
-      // to `product.id` on first revisit so the badge / chart line /
-      // popup all see the same value going forward.
-      try {
-        const result = await chrome.storage.local.get(['priceTargets']);
-        const targets = result.priceTargets || {};
-        let existing = targets[productKey];
-        if (existing == null && legacyUrlKey && legacyUrlKey !== productKey && targets[legacyUrlKey] != null) {
-          // Migrate legacy URL-keyed target → productId key.
-          existing = targets[legacyUrlKey];
-          await saveTarget(existing);
-        }
-        if (existing != null) {
-          input.value = existing;
-          renderStatus(existing);
-        }
-      } catch (e) {}
-
-      btn.addEventListener('click', async () => {
-        const targetPrice = parseFloat(input.value);
-        if (!targetPrice || targetPrice <= 0) {
-          // Clear target — also clear any legacy URL-keyed entry.
-          try {
-            await saveTarget(null);
-            renderStatus(null);
-            input.value = '';
-            // Re-render chart so the target line disappears.
-            await self.renderChart(product, analysis, t, container);
-          } catch (e) {}
-          return;
-        }
-
-        try {
-          await saveTarget(targetPrice);
-          renderStatus(targetPrice);
-
-          // Flash confirmation
-          btn.textContent = '!';
-          setTimeout(() => { btn.textContent = t('priceTarget.set') || 'Set'; }, 1000);
-
-          // Re-render chart so the new target line appears.
-          await self.renderChart(product, analysis, t, container);
-        } catch (e) {
-          console.error('[Fake Discount] Error saving price target:', e);
-        }
-      });
-
-      // Also set on Enter key
-      input.addEventListener('keydown', (e) => {
-        if (e.key === 'Enter') {
-          e.preventDefault();
-          e.stopPropagation();
-          btn.click();
-        }
-      });
-    },
-
-    async renderChart(product, analysis, t, widgetContainer) {
-      if (!window.AdvancedChart) {
-        console.warn('[Fake Discount] AdvancedChart not available');
-        return;
-      }
-
-      let chartContainer = widgetContainer.querySelector('.fake-discount-chart') ||
-                          widgetContainer.querySelector('[id^="price-chart-"]');
-
-      if (!chartContainer) {
-        return;
-      }
-
-      if (!product || !product.history || !Array.isArray(product.history) || product.history.length === 0) {
-        while (chartContainer.firstChild) {
-          chartContainer.removeChild(chartContainer.firstChild);
-        }
-
-        const chartWidth = chartContainer.clientWidth || chartContainer.offsetWidth || 800;
-        try {
-          new window.AdvancedChart(chartContainer, {
-            width: chartWidth,
-            height: 280,
-            data: [],
-            lineColor: '#3498db',
-            t: t,
-            locale: getLocale()
-          });
-
-          setTimeout(() => {
-            const svg = chartContainer.querySelector('svg');
-            if (svg) {
-              const text = document.createElementNS('http://www.w3.org/2000/svg', 'text');
-              text.setAttribute('x', '50%');
-              text.setAttribute('y', '50%');
-              text.setAttribute('text-anchor', 'middle');
-              text.setAttribute('font-size', '16');
-              text.setAttribute('fill', '#666');
-              text.textContent = t('insufficientData') || 'Insufficient data';
-              svg.appendChild(text);
-            }
-          }, 100);
-        } catch (e) {
-          const placeholder = document.createElement('div');
-          placeholder.className = 'fake-discount-empty-state';
-          placeholder.textContent = t('insufficientData') || 'Insufficient data';
-          chartContainer.appendChild(placeholder);
-        }
-        return;
-      }
-
-      const chartData = product.history
-        .filter(entry => entry && entry.date && typeof entry.price === 'number' && !isNaN(entry.price))
-        .map(entry => ({ date: entry.date, price: entry.price }));
-
-      if (chartData.length === 0) {
-        while (chartContainer.firstChild) {
-          chartContainer.removeChild(chartContainer.firstChild);
-        }
-        const placeholder = document.createElement('div');
-        placeholder.className = 'fake-discount-empty-state';
-        placeholder.textContent = t('insufficientData') || 'Insufficient data';
-        chartContainer.appendChild(placeholder);
-        return;
-      }
-
-      let lineColor = '#3B82F6';
-      const verdict = analysis.verdict || 'STABLE_PRICE';
-      if (verdict === 'FAKE_DISCOUNT') {
-        lineColor = '#EF4444';
-      } else if (verdict === 'REAL_DEAL') {
-        lineColor = '#10B981';
-      } else if (verdict === 'STABLE_PRICE') {
-        lineColor = '#F59E0B';
-      } else if (verdict === 'VOLATILE_PRICE') {
-        // Distinct from stable yellow and fake-discount red — sits between
-        // them visually because volatility is a "neither buy nor avoid" state.
-        lineColor = '#F97316';
-      }
-
-      if (chartContainer.clientWidth === 0) {
-        chartContainer.style.width = '100%';
-        chartContainer.style.minWidth = '400px';
-      }
-
-      // Look up the user's target price for this product so we can draw it
-      // as a horizontal line on the chart. Prefer the productId key; fall
-      // back to the legacy url key for targets saved before v3.15.11.
-      let targetPrice = null;
-      if (product && (product.id || product.url)) {
-        try {
-          const result = await chrome.storage.local.get(['priceTargets']);
-          const targets = result.priceTargets || {};
-          const idKey = product.id || '';
-          const urlKey = product.url || '';
-          if (idKey && typeof targets[idKey] === 'number') {
-            targetPrice = targets[idKey];
-          } else if (urlKey && typeof targets[urlKey] === 'number') {
-            targetPrice = targets[urlKey];
-          }
-        } catch (e) {}
-      }
-
-      try {
-        while (chartContainer.firstChild) {
-          chartContainer.removeChild(chartContainer.firstChild);
-        }
-
-        const chartWidth = chartContainer.clientWidth || chartContainer.offsetWidth || 800;
-        new window.AdvancedChart(chartContainer, {
-          width: chartWidth,
-          height: 280,
-          data: chartData,
-          lineColor: lineColor,
-          averagePrice: analysis.stats?.averagePrice || analysis.historicalAvg,
-          targetPrice: targetPrice,
-          t: t,
-          locale: getLocale()
-        });
-      } catch (error) {
-        console.error('[Fake Discount] Chart error:', error);
-        while (chartContainer.firstChild) {
-          chartContainer.removeChild(chartContainer.firstChild);
-        }
-        const errorDiv = document.createElement('div');
-        errorDiv.className = 'fake-discount-error';
-        errorDiv.textContent = t('errors.chartRenderFailed');
-        chartContainer.appendChild(errorDiv);
-      }
+    renderError(container, message) {
+      if (!container) return;
+      const { stage } = mount(container);
+      stage.appendChild(h('div', { class: 'fd fd--error', role: 'alert' }, icon('alert', 18), h('span', null, message)));
     }
   };
-
-  if (typeof window !== 'undefined') {
-    window.FakeDiscountWidget = globalObj.FakeDiscountWidget;
-  }
 })();
