@@ -6,8 +6,21 @@ A Manifest V3 Chrome/Edge extension with adapters for 20 Bulgarian e-commerce si
 
 All recorded data stays in the browser's local extension storage; the extension has no server and sends nothing anywhere.
 
+**Chrome Web Store:** https://chromewebstore.google.com/detail/fake-discount-bulgaria-ca/napohmhembobenfaaanfdabjehnjcdci
 **Repository:** https://github.com/victortserovski/Fake-Discount-BG
 **Privacy policy:** [PRIVACY.md](PRIVACY.md)
+
+![The price panel on a product page and the extension's product list](https://raw.githubusercontent.com/victortserovski/Fake-Discount-BG/main/store-assets/screenshot-1.png)
+
+## At a glance
+
+- **What it does:** warns when a "discount" in a Bulgarian online store doesn't match the price history you have seen, and shows that history as a chart right on the product page.
+- **Stack:** Manifest V3, vanilla JavaScript with no framework, build step or runtime dependencies; Shadow DOM for the on-page panel; a hand-written SVG chart; the Chrome storage API.
+- **Store coverage:** 20 store adapters. Each reads the price from structured data (JSON-LD, microdata) or the visible page, follows single-page-app navigation, and recognises sold-out products and reference prices (manufacturer RRP, 30-day lows) that aren't real previous prices.
+- **Testing:** 86 automated tests (Node's test runner with linkedom), including 54 saved real product pages used as fixtures.
+- **Privacy:** everything stays in the browser — no server, no account, no tracking.
+- **Languages:** Bulgarian and English.
+- More screenshots: [store-assets/](https://github.com/victortserovski/Fake-Discount-BG/tree/main/store-assets)
 
 ## Features
 
@@ -26,6 +39,8 @@ All recorded data stays in the browser's local extension storage; the extension 
 - **Persisted filters**: Store-filter chips and sort selection survive popup close/reopen (the search box is intentionally cleared each time)
 
 ## Installation
+
+Install it from the [Chrome Web Store](https://chromewebstore.google.com/detail/fake-discount-bulgaria-ca/napohmhembobenfaaanfdabjehnjcdci) (also works in Edge), or load the source as an unpacked extension:
 
 1. Download or clone this repository
 2. Open Chrome/Edge and navigate to `chrome://extensions/` (or `edge://extensions/`)

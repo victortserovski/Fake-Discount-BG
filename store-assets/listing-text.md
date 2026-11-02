@@ -1,55 +1,59 @@
-# Chrome Web Store listing text — v3.19.0 (local-only)
+# Chrome Web Store listing text — v3.19.1 (local-only)
 
-Summary (short description) comes from the package: `_locales/en` and
-`_locales/bg` `appDescription`. You don't type it in the dashboard.
+Title and summary come from the package (`appName` / `appDescription` in
+`_locales/en` and `_locales/bg`); you don't type them in the dashboard.
+- English: "Fake Discount Bulgaria - Catch Faked Sales"
+- Bulgarian: "Fake Discount BG – истински ли са намаленията"
 
-## Store listing → Description — English (default language)
+## Store listing → Description
 
-Fake Discount BG shows you whether a "discount" in a Bulgarian online store is real.
+Do not list store names in the description: version 3.19.0 was rejected for
+"excessive keywords" (Yellow Argon) because of a list of the supported stores.
+Replace the whole description in both languages with the text below.
 
-When you open a product page in one of 20 supported stores, the extension records that day's price and shows a compact panel right on the page:
-• a signal about the current price — for example when the claimed "original" price is far above anything seen before, when the price is at its lowest, or when it changes often
-• today's price next to the lowest, average and highest price seen
-• a day-by-day price chart with the claimed "was" price and the average
-• an optional price target — the chart shows a target line and the extension icon shows 🎯 when the price reaches it
+### English (default language)
 
-The menu lists every product you follow, with search, store filters and sorting. There you can turn individual stores on or off, switch between Bulgarian and English, and export or import your history.
+Fake Discount BG helps you tell a real discount from a fake one when you shop online in Bulgaria.
+
+When you open a product in one of 20 supported Bulgarian online stores, the extension remembers that day's price and adds a compact panel below the product:
+• A clear signal — for example when the claimed "original" price is far above anything seen before, when today's offer is the lowest you have seen, or when it keeps changing.
+• Today's price next to the lowest, average and highest seen so far.
+• A day-by-day chart with the claimed "was" price and the average.
+• An optional target: enter what you want to pay, see it as a line on the chart, and the extension icon shows 🎯 once it is reached.
+
+Its menu lists everything you follow, with search, filters and sorting. In its settings you can turn individual stores on or off, switch between Bulgarian and English, and export or import your history.
 
 Private by design
-• Your price history is stored only in your browser. The extension has no server and sends no data anywhere.
+• Everything stays in your browser. The extension has no server and sends nothing anywhere.
 • No account, no ads, no tracking.
-• It runs only on the 20 supported stores.
-
-Supported stores: eMAG, Ozone, Notino, Technopolis, Technomarket, Zora, Ardes, Plesio, About You, Answear, Decathlon, dm, Fashion Days, Lilly, Mr. Bricolage, Obuvki, Praktiker, SOpharmacy, Sport Depot, eBag.
+• It runs only on the supported stores; the full list is in its settings.
 
 Good to know
-• History builds up from the first time you open a product; signals become more reliable after about a week of observations.
-• Signals are a guide, not proof: they are based only on the prices recorded in your browser.
-• Not affiliated with any of the stores.
+• History starts the first time you open a product; signals become more reliable after about a week.
+• Signals are a guide, not proof: they rely only on what your browser has recorded.
+• Not affiliated with any store.
 
-## Store listing → Description — Bulgarian (Български)
+### Bulgarian (Български)
 
-Fake Discount BG ви показва дали „намалението“ в български онлайн магазин е истинско.
+Fake Discount BG ви помага да различите истинското намаление от фалшивото, когато пазарувате онлайн в България.
 
-Когато отворите продукт в някой от 20-те поддържани магазина, разширението записва цената за деня и показва компактен панел направо на страницата:
-• сигнал за текущата цена — например когато обявената „стара“ цена е далеч над всичко видяно досега, когато цената е на най-ниското си ниво или когато се мени често
-• днешната цена до най-ниската, средната и най-високата видяна цена
-• графика на цената ден по ден с обявената „стара“ цена и средната стойност
-• целева цена по желание — графиката показва линия на целта, а иконата на разширението показва 🎯, когато цената я достигне
+Когато отворите продукт в някой от 20-те поддържани български онлайн магазина, разширението запомня цената за деня и добавя компактен панел под продукта:
+• Ясен сигнал — например когато обявената „стара“ цена е далеч над всичко видяно досега, когато днешната оферта е най-ниската, която сте виждали, или когато често се променя.
+• Днешната цена до най-ниската, средната и най-високата, видяни досега.
+• Графика ден по ден с обявената „стара“ цена и средната стойност.
+• Цел по желание: въведете колко искате да платите, вижте я като линия в графиката, а иконата на разширението показва 🎯, когато бъде достигната.
 
-В менюто са всички продукти, които следите, с търсене, филтри по магазин и подреждане. Там можете да включвате и изключвате отделни магазини, да смените езика (български/английски) и да експортирате или импортирате историята си.
+В менюто му са всички продукти, които следите, с търсене, филтри и подреждане. В настройките можете да включвате и изключвате отделни магазини, да избирате между български и английски и да експортирате или импортирате историята си.
 
 Поверителност
-• Историята на цените се пази само в браузъра ви. Разширението няма сървър и не изпраща данни никъде.
+• Всичко остава в браузъра ви. Разширението няма сървър и не изпраща нищо никъде.
 • Без регистрация, без реклами, без проследяване.
-• Работи само в 20-те поддържани магазина.
-
-Поддържани магазини: eMAG, Ozone, Notino, Технополис, Техномаркет, Зора, Ардес, Plesio, About You, Answear, Decathlon, dm, Fashion Days, Лили, Мосю Бриколаж, Obuvki, Практикер, SOpharmacy, Sport Depot, eBag.
+• Работи само в поддържаните магазини; пълният списък е в настройките.
 
 Добре е да знаете
-• Историята започва от първото отваряне на продукта; сигналите стават по-надеждни след около седмица наблюдения.
-• Сигналите са ориентир, а не доказателство — те се основават само на цените, записани в браузъра ви.
-• Разширението не е свързано с нито един от магазините.
+• Историята започва от първото отваряне на продукта; сигналите стават по-надеждни след около седмица.
+• Сигналите са ориентир, а не доказателство — основават се само на записаното в браузъра ви.
+• Разширението не е свързано с нито един магазин.
 
 ## Privacy tab
 

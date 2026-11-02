@@ -1,7 +1,7 @@
 {
   "appName": {
-    "message": "Fake Discount Bulgaria - Catch Faked Sales",
-    "description": "Extension name (brand, not translated)."
+    "message": "Fake Discount BG – истински ли са намаленията",
+    "description": "Extension name for Bulgarian users: brand plus a short Bulgarian descriptor (max 75 characters)."
   },
   "appDescription": {
     "message": "Записва дневната история на цените в браузъра ви и отбелязва съмнителните намаления в 20 български онлайн магазина.",

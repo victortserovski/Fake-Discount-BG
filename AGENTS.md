@@ -442,7 +442,7 @@ take the higher bump (one MINOR absorbs any number of patches inside it).
 ## 8. Where things live
 
 - `manifest.json` — extension config, permissions, version
-- `_locales/{en,bg}/messages.json` — localized extension name and Web Store summary (`__MSG_appName__`, `__MSG_appDescription__`; max 132 characters). UI strings stay in `i18n/`
+- `_locales/{en,bg}/messages.json` — localized extension name and Web Store summary (`__MSG_appName__`, max 75 characters — the Bulgarian title adds a short descriptor to the brand; `__MSG_appDescription__`, max 132). UI strings stay in `i18n/`
 - `background/service-worker.js` — message router, badge management
 - `background/price-tracker.js` — `detectFakeDiscount()` verdict logic
 - `utils/storage.js` — `PriceStorageManager` (per-product keys, write queue)
